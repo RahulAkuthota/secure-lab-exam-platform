@@ -1,8 +1,20 @@
 import { useNavigate } from "react-router-dom";
+import { useState } from "react";
 import "../../styles/admin.css";
 
 function Dashboard() {
     const navigate = useNavigate();
+
+    // ✅ NEW: exam status state
+    const [examStatus, setExamStatus] = useState("NOT_STARTED");
+
+    function startExam() {
+        setExamStatus("RUNNING");
+    }
+
+    function endExam() {
+        setExamStatus("ENDED");
+    }
 
     return (
         <div className="admin-page">
@@ -24,11 +36,38 @@ function Dashboard() {
                 {/* Manage Exams */}
                 <div className="admin-card">
                     <h3>📝 Manage Exam</h3>
-                    <p>Start / Stop exam sessions</p>
+                    <p>
+                        Status:{" "}
+                        <strong
+                            style={{
+                                color:
+                                    examStatus === "RUNNING"
+                                        ? "green"
+                                        : examStatus === "ENDED"
+                                        ? "red"
+                                        : "gray",
+                            }}
+                        >
+                            {examStatus}
+                        </strong>
+                    </p>
 
                     <div className="admin-actions">
-                        <button className="admin-btn primary">Start Exam</button>
-                        <button className="admin-btn danger">End Exam</button>
+                        <button
+                            className="admin-btn primary"
+                            onClick={startExam}
+                            disabled={examStatus === "RUNNING"}
+                        >
+                            Start Exam
+                        </button>
+
+                        <button
+                            className="admin-btn danger"
+                            onClick={endExam}
+                            disabled={examStatus !== "RUNNING"}
+                        >
+                            End Exam
+                        </button>
                     </div>
                 </div>
 
@@ -50,6 +89,7 @@ function Dashboard() {
                     <p>View and manage all questions</p>
                 </div>
 
+                {/* Exam Setup */}
                 <button
                     className="admin-btn"
                     onClick={() => navigate("/admin/exam/attach-questions")}
@@ -58,14 +98,11 @@ function Dashboard() {
                 </button>
 
                 <button
-  className="admin-btn primary"
-  onClick={() => navigate("/admin/exam/settings")}
->
-  📝 Create Exam
-</button>
-
-
-
+                    className="admin-btn primary"
+                    onClick={() => navigate("/admin/exam/settings")}
+                >
+                    📝 Create Exam
+                </button>
             </div>
         </div>
     );

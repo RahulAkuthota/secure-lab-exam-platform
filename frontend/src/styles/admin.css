@@ -1,3 +1,7 @@
+ 
+/* 
+Above is updated css for dashboard */
+
 .admin-page {
     padding: 32px;
     background: #f5f7fb;
@@ -541,6 +545,63 @@
   .status.not-submitted {
     background: #fee2e2;
     color: #991b1b;
+  }
+  
+
+  /* ================================
+   DASHBOARD-SPECIFIC FIX
+   ================================ */
+
+/* Reset admin-page behavior ONLY for dashboard */
+.admin-page {
+    display: block;
+    justify-content: initial;
+    padding: 32px;
+    background: #f5f7fb;
+  }
+  
+  /* Improve dashboard grid spacing */
+  .admin-grid {
+    margin-top: 10px;
+  }
+  
+  /* Improve dashboard cards */
+  .admin-card {
+    border-radius: 14px;
+    padding: 22px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  }
+  
+  /* Dashboard headings */
+  .admin-heading {
+    font-size: 30px;
+    font-weight: 600;
+    color: #111827;
+  }
+  
+  .admin-subheading {
+    font-size: 14px;
+    color: #6b7280;
+    margin-bottom: 28px;
+  }
+  
+  /* Buttons inside dashboard cards */
+  .admin-actions {
+    margin-top: 14px;
+  }
+  
+  /* Dashboard buttons refinement */
+  .admin-btn {
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: 8px;
+    padding: 10px 16px;
+  }
+  
+  /* Hover polish */
+  .admin-card.clickable:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.1);
   }
   
   
