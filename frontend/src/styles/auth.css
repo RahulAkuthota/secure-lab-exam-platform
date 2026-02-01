@@ -93,5 +93,46 @@
   }
 
   
+  /* faculty css */
+  .auth-page {
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #f4f6f8;
+  }
+  
+  .auth-card {
+    background: #fff;
+    padding: 32px;
+    width: 360px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  }
+  
+  .auth-title {
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  
+  .auth-card input {
+    width: 100%;
+    margin-bottom: 12px;
+    padding: 10px;
+  }
+  
+  .auth-btn {
+    width: 100%;
+    padding: 10px;
+    margin-top: 10px;
+  }
+  
+  .auth-hint {
+    text-align: center;
+    font-size: 12px;
+    margin-top: 12px;
+    color: gray;
+  }
+  
   
   
