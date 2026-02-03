@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    container_name: lab_exam_backend
+    ports:
+      - "5000:5000"
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - mongo
+      - redis
+
+  frontend:
+    build: ./frontend
+    container_name: lab_exam_frontend
+    ports:
+      - "4173:4173"
+    depends_on:
+      - backend
+
+  worker:
+    build: ./backend
+    command: node worker.js
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - mongo
+      - redis
+    deploy:
+      replicas: 2   # informational (real scaling via CLI)
+
+  mongo:
+    image: mongo:6
+    container_name: lab_exam_mongo
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+
+  redis:
+    image: redis:7
+    container_name: lab_exam_redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  mongo_data:
