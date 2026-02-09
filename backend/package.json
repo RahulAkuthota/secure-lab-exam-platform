@@ -1,18 +1,24 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "",
+  "description": "Secure offline backend for lab exam platform",
   "license": "ISC",
   "author": "",
   "type": "module",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
     "dev": "node server.js",
+    "start": "node server.js",
+    "admin:token": "node utils/generateSuperAdminToken.js",
+    "faculty:reset-password": "node utils/resetFacultyPassword.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
-    "path": "^0.12.7"
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.19.1"
   }
 }

@@ -1,0 +1,447 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Navigate, useNavigate } from "react-router-dom";
+import PageShell from "../layout/PageShell";
+import { studentApi } from "../api";
+import { studentStorage } from "../storage";
+import useFullscreen from "../hooks/useFullscreen";
+
+const MAX_VIOLATIONS = 3;
+
+function useCountdown(expiresAt) {
+  const [seconds, setSeconds] = useState(null);
+
+  useEffect(() => {
+    if (!expiresAt) {
+      setSeconds(null);
+      return;
+    }
+    const tick = () => {
+      const diff = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+      setSeconds(diff);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [expiresAt]);
+
+  return seconds;
+}
+
+function formatTime(totalSeconds) {
+  if (typeof totalSeconds !== "number") return "--:--";
+  const mins = Math.floor(totalSeconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const secs = Math.floor(totalSeconds % 60)
+    .toString()
+    .padStart(2, "0");
+  return `${mins}:${secs}`;
+}
+
+function ExamPage({ pushToast }) {
+  const navigate = useNavigate();
+  const token = studentStorage.get(studentStorage.keys.token);
+  const student = studentStorage.get(studentStorage.keys.profile);
+  const exam = studentStorage.get(studentStorage.keys.exam);
+  const questions = studentStorage.get(studentStorage.keys.questions) || [];
+  const examSession = studentStorage.get(studentStorage.keys.examSession);
+
+  const [answers, setAnswers] = useState({});
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
+  const [activeTab, setActiveTab] = useState("description");
+  const [submitting, setSubmitting] = useState(false);
+  const [secureReady, setSecureReady] = useState(false);
+  const [fullscreenLocked, setFullscreenLocked] = useState(false);
+  const [violations, setViolations] = useState(0);
+  const [layoutMode, setLayoutMode] = useState("split");
+  const autoSubmittedRef = useRef(false);
+  const violationThrottleRef = useRef(0);
+  const remainingSeconds = useCountdown(examSession?.expiresAt);
+  const allowedLanguages =
+    Array.isArray(exam?.allowedLanguages) && exam.allowedLanguages.length
+      ? exam.allowedLanguages
+      : ["python", "java", "cpp", "javascript", "c"];
+  const answeredCount = useMemo(
+    () => Object.values(answers).filter((item) => item?.code?.trim()).length,
+    [answers]
+  );
+
+  const submitExam = async (isAuto = false) => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await studentApi.submitExam(token, {
+        examId: exam.id,
+        answers: Object.entries(answers).map(([questionIndex, payload]) => ({
+          questionIndex: Number(questionIndex),
+          selectedOption: `// language: ${payload.language || allowedLanguages[0]}\n${payload.code || ""}`,
+        })),
+      });
+      studentStorage.set(studentStorage.keys.submission, {
+        submittedAt: new Date().toISOString(),
+        answered: answeredCount,
+        total: questions.length,
+        auto: isAuto,
+      });
+      pushToast("success", isAuto ? "Auto-submitted due to timer end" : "Exam submitted");
+      navigate("/summary");
+    } catch (apiError) {
+      pushToast("error", apiError.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const registerViolation = useCallback((reason) => {
+    const now = Date.now();
+    if (now - violationThrottleRef.current < 800) return;
+    violationThrottleRef.current = now;
+
+    setViolations((prev) => {
+      const next = prev + 1;
+      pushToast("error", `${reason} (${next}/${MAX_VIOLATIONS})`);
+      return next;
+    });
+  }, [pushToast]);
+
+  const requestExamFullscreen = useCallback(async () => {
+    if (document.fullscreenElement) {
+      setFullscreenLocked(false);
+      return true;
+    }
+
+    try {
+      await document.documentElement.requestFullscreen();
+      setFullscreenLocked(false);
+      return true;
+    } catch (error) {
+      setFullscreenLocked(true);
+      return false;
+    }
+  }, []);
+
+  useFullscreen(
+    secureReady,
+    useCallback(() => {
+      setFullscreenLocked(true);
+      registerViolation("Fullscreen exited");
+    }, [registerViolation])
+  );
+
+  useEffect(() => {
+    if (!secureReady) return undefined;
+    const syncFullscreenState = () => {
+      setFullscreenLocked(!document.fullscreenElement);
+    };
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    syncFullscreenState();
+    return () => {
+      document.removeEventListener("fullscreenchange", syncFullscreenState);
+    };
+  }, [secureReady]);
+
+  useEffect(() => {
+    if (!examSession?.expiresAt || autoSubmittedRef.current) return;
+    if (typeof remainingSeconds === "number" && remainingSeconds === 0) {
+      autoSubmittedRef.current = true;
+      submitExam(true);
+    }
+  }, [remainingSeconds, examSession?.expiresAt]);
+
+  useEffect(() => {
+    if (!examSession?.expiresAt) return;
+    if (Number.isFinite(Number(examSession.expiresAt))) return;
+    pushToast("error", "Invalid exam session timing. Please start exam again.");
+    navigate("/exams", { replace: true });
+  }, [examSession?.expiresAt, navigate, pushToast]);
+
+  useEffect(() => {
+    if (!secureReady) return undefined;
+
+    const onKeyDown = (event) => {
+      const key = event.key.toLowerCase();
+      const blockedCtrlKeys = ["c", "v", "x", "a", "s", "p", "u", "r", "t", "n", "w", "l", "k", "j", "o", "i"];
+      const shouldBlockCtrlMeta = (event.ctrlKey || event.metaKey) && blockedCtrlKeys.includes(key);
+      const isFunctionToolKey = key === "f12";
+      const isAltCombo = event.altKey;
+      const isMetaKey = key === "meta";
+
+      if (shouldBlockCtrlMeta || isFunctionToolKey || isAltCombo || isMetaKey) {
+        event.preventDefault();
+        registerViolation("Restricted keyboard shortcut detected");
+      }
+    };
+
+    const onContextMenu = (event) => {
+      event.preventDefault();
+      registerViolation("Right click is blocked");
+    };
+
+    const onClipboard = (event) => {
+      event.preventDefault();
+      registerViolation("Copy/paste actions are blocked");
+    };
+
+    const onDragStart = (event) => {
+      event.preventDefault();
+      registerViolation("Drag actions are blocked");
+    };
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        registerViolation("Exam tab lost focus");
+      }
+    };
+
+    const onWindowBlur = () => {
+      registerViolation("Window focus changed");
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("contextmenu", onContextMenu);
+    document.addEventListener("copy", onClipboard);
+    document.addEventListener("cut", onClipboard);
+    document.addEventListener("paste", onClipboard);
+    document.addEventListener("dragstart", onDragStart);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("blur", onWindowBlur);
+
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("contextmenu", onContextMenu);
+      document.removeEventListener("copy", onClipboard);
+      document.removeEventListener("cut", onClipboard);
+      document.removeEventListener("paste", onClipboard);
+      document.removeEventListener("dragstart", onDragStart);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("blur", onWindowBlur);
+    };
+  }, [registerViolation, secureReady]);
+
+  useEffect(() => {
+    if (violations < MAX_VIOLATIONS || autoSubmittedRef.current) return;
+    autoSubmittedRef.current = true;
+    pushToast("error", "Security violations exceeded. Auto-submitting exam.");
+    submitExam(true);
+  }, [violations]);
+
+  if (!student || !exam || questions.length === 0) return <Navigate to="/exams" replace />;
+
+  const activeQuestion = questions[activeQuestionIndex];
+  const activeAnswer = answers[activeQuestionIndex] || {
+    code: "",
+    language: allowedLanguages[0],
+  };
+
+  const setAnswerCode = (code) => {
+    setAnswers((prev) => ({
+      ...prev,
+      [activeQuestionIndex]: {
+        ...prev[activeQuestionIndex],
+        language: prev[activeQuestionIndex]?.language || allowedLanguages[0],
+        code,
+      },
+    }));
+  };
+
+  const setAnswerLanguage = (language) => {
+    setAnswers((prev) => ({
+      ...prev,
+      [activeQuestionIndex]: {
+        ...prev[activeQuestionIndex],
+        language,
+        code: prev[activeQuestionIndex]?.code || "",
+      },
+    }));
+  };
+
+  const enterSecureMode = async () => {
+    const ok = await requestExamFullscreen();
+    if (ok) {
+      setSecureReady(true);
+      pushToast("success", "Secure exam mode is active");
+    } else {
+      pushToast("error", "Fullscreen permission denied. Allow fullscreen and retry.");
+    }
+  };
+
+  return (
+    <PageShell
+      title={exam.title}
+      subtitle={`${student.name} (${student.rollNumber})`}
+      rightAction={
+        <div className="exam-meta-row">
+          <div className="timer-chip">
+            Time Left: <strong>{formatTime(remainingSeconds)}</strong>
+          </div>
+          <div className={`chip violation-chip ${violations > 0 ? "warn" : ""}`}>
+            Violations {violations}/{MAX_VIOLATIONS}
+          </div>
+        </div>
+      }
+    >
+      {!secureReady ? (
+        <section className="card secure-gate">
+          <h2>Secure Exam Mode</h2>
+          <p className="meta">
+            Start secure mode to enter fullscreen and apply exam restrictions. Leaving fullscreen or switching focus
+            increases violations and may auto-submit.
+          </p>
+          <button className="primary-btn" onClick={enterSecureMode}>
+            Enter Secure Exam Mode
+          </button>
+        </section>
+      ) : null}
+
+      {secureReady ? (
+        <>
+        {fullscreenLocked ? (
+          <section className="card secure-overlay full-lock">
+            <h2>Return To Fullscreen</h2>
+            <p className="meta">
+              Exam is locked until fullscreen is active again.
+            </p>
+            <button className="primary-btn" onClick={requestExamFullscreen}>
+              Re-enter Fullscreen
+            </button>
+          </section>
+        ) : null}
+        {!fullscreenLocked ? (
+        <section className="leetcode-shell">
+        <div className="section-head">
+          <h2>Coding Assessment</h2>
+          <div className="exam-header-actions">
+            <span className="chip">
+              Answered {answeredCount}/{questions.length}
+            </span>
+            <div className="layout-switch">
+              <button
+                className={`tab-btn ${layoutMode === "split" ? "active" : ""}`}
+                onClick={() => setLayoutMode("split")}
+              >
+                Split
+              </button>
+              <button
+                className={`tab-btn ${layoutMode === "question" ? "active" : ""}`}
+                onClick={() => setLayoutMode("question")}
+              >
+                Question Full
+              </button>
+              <button
+                className={`tab-btn ${layoutMode === "editor" ? "active" : ""}`}
+                onClick={() => setLayoutMode("editor")}
+              >
+                Editor Full
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className={`leetcode-grid mode-${layoutMode}`}>
+          <div className="problem-panel">
+            <div className="question-nav-row">
+              {questions.map((_, index) => (
+                <button
+                  key={`nav-${index}`}
+                  className={`question-pill ${index === activeQuestionIndex ? "active" : ""}`}
+                  onClick={() => setActiveQuestionIndex(index)}
+                >
+                  Q{index + 1}
+                </button>
+              ))}
+            </div>
+
+            <div className="tab-row">
+              <button
+                className={`tab-btn ${activeTab === "description" ? "active" : ""}`}
+                onClick={() => setActiveTab("description")}
+              >
+                Description
+              </button>
+              <button
+                className={`tab-btn ${activeTab === "examples" ? "active" : ""}`}
+                onClick={() => setActiveTab("examples")}
+              >
+                Public Testcases
+              </button>
+            </div>
+
+            <article className="problem-card">
+              <p className="q-title">
+                Q{activeQuestionIndex + 1}. {activeQuestion?.title || activeQuestion?.questionText}
+              </p>
+              {activeTab === "description" ? (
+                <p className="problem-desc">{activeQuestion?.description || "No description available."}</p>
+              ) : (
+                <div className="public-tests">
+                  {Array.isArray(activeQuestion?.publicTestCases) &&
+                  activeQuestion.publicTestCases.length > 0 ? (
+                    activeQuestion.publicTestCases.map((testCase, caseIndex) => (
+                      <div
+                        key={`public-${activeQuestionIndex}-${caseIndex}`}
+                        className="public-test-item"
+                      >
+                        <p>
+                          <strong>Input:</strong> {testCase.input}
+                        </p>
+                        <p>
+                          <strong>Expected:</strong> {testCase.expectedOutput}
+                        </p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="meta">No public test cases available.</p>
+                  )}
+                </div>
+              )}
+            </article>
+          </div>
+
+          <div className="editor-panel">
+            <div className="editor-toolbar">
+              <span>Code Editor</span>
+              <select
+                className="language-select"
+                value={activeAnswer.language}
+                onChange={(event) => setAnswerLanguage(event.target.value)}
+              >
+                {allowedLanguages.map((language) => (
+                  <option key={language} value={language}>
+                    {language}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <textarea
+              className="code-editor"
+              spellCheck={false}
+              value={activeAnswer.code}
+              onChange={(event) => setAnswerCode(event.target.value)}
+              onCopy={(event) => event.preventDefault()}
+              onPaste={(event) => event.preventDefault()}
+              onCut={(event) => event.preventDefault()}
+              placeholder="Write your code solution here..."
+            />
+          </div>
+        </div>
+
+        <div className="action-row">
+          <button
+            className="ghost-btn"
+            disabled={submitting}
+            onClick={() => {
+              const ok = window.confirm("Submit final answers now?");
+              if (ok) submitExam(false);
+            }}
+          >
+            {submitting ? "Submitting..." : "Submit Exam"}
+          </button>
+        </div>
+        </section>
+        ) : null}
+        </>
+      ) : null}
+    </PageShell>
+  );
+}
+
+export default ExamPage;
