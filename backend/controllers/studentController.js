@@ -2,6 +2,8 @@ import { Exam } from "../models/Exam.js";
 import { QuestionPaper } from "../models/QuestionPaper.js";
 import { Submission } from "../models/Submission.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { enqueueSubmissionJob } from "../utils/redisQueue.js";
+import { randomUUID } from "crypto";
 
 const validateExamIsOpen = async (examId) => {
   const now = new Date();
@@ -160,5 +162,93 @@ export const submitExam = asyncHandler(async (req, res) => {
       submittedAt: finalSubmission.submittedAt,
       isSubmitted: finalSubmission.isSubmitted,
     },
+  });
+});
+
+export const submitCode = asyncHandler(async (req, res) => {
+  const {
+    examId,
+    questionIndex,
+    language,
+    code,
+    submissionType = "private",
+  } = req.body;
+  const tokenExamId = req.user.examId;
+  const effectiveExamId = examId || tokenExamId;
+
+  if (!effectiveExamId) {
+    return res.status(400).json({ message: "examId is required." });
+  }
+
+  if (!Number.isInteger(questionIndex) || questionIndex < 0) {
+    return res
+      .status(400)
+      .json({ message: "questionIndex must be a non-negative integer." });
+  }
+
+  if (!language || typeof language !== "string") {
+    return res.status(400).json({ message: "language is required." });
+  }
+
+  if (!code || typeof code !== "string" || !code.trim()) {
+    return res.status(400).json({ message: "code is required." });
+  }
+
+  if (!["public", "private"].includes(submissionType)) {
+    return res
+      .status(400)
+      .json({ message: "submissionType must be 'public' or 'private'." });
+  }
+
+  if (tokenExamId && tokenExamId.toString() !== effectiveExamId.toString()) {
+    return res
+      .status(403)
+      .json({ message: "Student token does not allow this exam." });
+  }
+
+  const exam = await validateExamIsOpen(effectiveExamId);
+  if (!exam) {
+    return res.status(403).json({ message: "Exam is not active right now." });
+  }
+
+  const examLanguages = Array.isArray(exam.allowedLanguages)
+    ? exam.allowedLanguages
+    : [];
+  if (examLanguages.length > 0 && !examLanguages.includes(language)) {
+    return res.status(400).json({
+      message: `Language '${language}' is not allowed for this exam.`,
+    });
+  }
+
+  const questionPaper = await QuestionPaper.findOne({ examId: effectiveExamId })
+    .select("questions")
+    .lean();
+
+  if (!questionPaper || !Array.isArray(questionPaper.questions)) {
+    return res.status(404).json({ message: "Question paper not found." });
+  }
+
+  if (questionIndex >= questionPaper.questions.length) {
+    return res.status(400).json({ message: "Invalid questionIndex." });
+  }
+
+  const job = {
+    jobId: randomUUID(),
+    studentId: req.user.sub,
+    rollNumber: req.user.rollNumber,
+    examId: effectiveExamId.toString(),
+    questionIndex,
+    language: language.trim().toLowerCase(),
+    code,
+    submissionType,
+    queuedAt: new Date().toISOString(),
+  };
+
+  const queueInfo = await enqueueSubmissionJob(job);
+
+  res.status(202).json({
+    message: "Submission queued successfully.",
+    jobId: job.jobId,
+    queue: queueInfo.queue,
   });
 });

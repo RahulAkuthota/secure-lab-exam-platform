@@ -4,14 +4,19 @@
   "description": "",
   "main": "worker.js",
   "scripts": {
+    "dev": "node worker.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
+    "dotenv": "^17.2.4",
     "mongodb": "^7.1.0",
     "redis": "^5.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3"
   }
 }

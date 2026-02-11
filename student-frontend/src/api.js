@@ -50,4 +50,14 @@ export const studentApi = {
       body: JSON.stringify(payload),
     });
   },
+  submitCode(token, payload) {
+    return request("/student/submit-code", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+  },
 };

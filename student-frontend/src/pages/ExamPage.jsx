@@ -328,17 +328,25 @@ function ExamPage({ pushToast }) {
     }
     setSubmittingCode(true);
     try {
-      // Backend private-evaluation API is not available yet; keep the stage explicit in UI.
-      await new Promise((resolve) => setTimeout(resolve, 450));
+      const response = await studentApi.submitCode(token, {
+        examId: exam.id,
+        questionIndex: activeQuestionIndex,
+        language: activeAnswer.language,
+        code: activeAnswer.code,
+        submissionType: "private",
+      });
       setExecutionState((prev) => ({
         ...prev,
         [activeQuestionIndex]: {
           ...prev[activeQuestionIndex],
           privateChecked: true,
           privateCheckedAt: new Date().toISOString(),
+          privateJobId: response.jobId,
         },
       }));
-      pushToast("success", `Code submitted for private checks on Q${activeQuestionIndex + 1}`);
+      pushToast("success", `Queued private check for Q${activeQuestionIndex + 1} (${response.jobId})`);
+    } catch (apiError) {
+      pushToast("error", apiError.message);
     } finally {
       setSubmittingCode(false);
     }

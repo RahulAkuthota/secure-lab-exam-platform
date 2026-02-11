@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   backend:
     build: ./backend
@@ -8,42 +6,98 @@ services:
       - "5000:5000"
     env_file:
       - ./backend/.env
+    environment:
+      MONGO_URI: mongodb://mongo:27017/secure_lab_exam_platform
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_SUBMISSION_QUEUE: submissionQueue
+      ALLOW_NON_LOCAL_MONGO: "true"
     depends_on:
-      - mongo
-      - redis
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
-  frontend:
-    build: ./frontend
-    container_name: lab_exam_frontend
+  faculty-frontend:
+    build: ./faculty-frontend
+    container_name: lab_exam_faculty_frontend
     ports:
-      - "4173:4173"
+      - "4173:80"
+    depends_on:
+      - backend
+
+  student-frontend:
+    build: ./student-frontend
+    container_name: lab_exam_student_frontend
+    ports:
+      - "4174:80"
     depends_on:
       - backend
 
   worker:
-    build: ./backend
-    command: node worker.js
+    build: ./worker
     env_file:
-      - ./backend/.env
+      - ./worker/.env
+    environment:
+      MONGO_URI: mongodb://mongo:27017/secure_lab_exam_platform
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_SUBMISSION_QUEUE: submissionQueue
     depends_on:
-      - mongo
-      - redis
-    deploy:
-      replicas: 2   # informational (real scaling via CLI)
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./:/workspace:ro
+
+  # Build executor images only (not running)
+  executor-c:
+    build: ./executor-c
+    image: executor-c
+    profiles: ["executors"]
+
+  executor-cpp:
+    build: ./executor-cpp
+    image: executor-cpp
+    profiles: ["executors"]
+
+  executor-java:
+    build: ./executor-java
+    image: executor-java
+    profiles: ["executors"]
 
   mongo:
     image: mongo:6
     container_name: lab_exam_mongo
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     volumes:
       - mongo_data:/data/db
     ports:
       - "27017:27017"
 
   redis:
-    image: redis:7
+    image: redis:8
     container_name: lab_exam_redis
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    volumes:
+      - redis_data:/data
     ports:
       - "6379:6379"
 
 volumes:
   mongo_data:
+  redis_data:

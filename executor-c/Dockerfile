@@ -1,4 +1,6 @@
-FROM gcc:13-alpine
+FROM alpine:3.21
+
+RUN apk add --no-cache gcc musl-dev
 
 WORKDIR /sandbox
 
