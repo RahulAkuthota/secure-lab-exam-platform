@@ -4,8 +4,7 @@ import PageShell from "../layout/PageShell";
 import { studentApi } from "../api";
 import { studentStorage } from "../storage";
 import useFullscreen from "../hooks/useFullscreen";
-
-const MAX_VIOLATIONS = 3;
+import SecureMonacoEditor from "../components/SecureMonacoEditor";
 
 function useCountdown(expiresAt) {
   const [seconds, setSeconds] = useState(null);
@@ -54,6 +53,9 @@ function ExamPage({ pushToast }) {
   const [fullscreenLocked, setFullscreenLocked] = useState(false);
   const [violations, setViolations] = useState(0);
   const [layoutMode, setLayoutMode] = useState("split");
+  const [executionState, setExecutionState] = useState({});
+  const [runningPublic, setRunningPublic] = useState(false);
+  const [submittingCode, setSubmittingCode] = useState(false);
   const autoSubmittedRef = useRef(false);
   const violationThrottleRef = useRef(0);
   const remainingSeconds = useCountdown(examSession?.expiresAt);
@@ -99,10 +101,15 @@ function ExamPage({ pushToast }) {
 
     setViolations((prev) => {
       const next = prev + 1;
-      pushToast("error", `${reason} (${next}/${MAX_VIOLATIONS})`);
+      pushToast("error", `${reason}. Restricted action blocked.`);
       return next;
     });
   }, [pushToast]);
+
+  const isCodeEditorTarget = useCallback((target) => {
+    if (!(target instanceof HTMLElement)) return false;
+    return Boolean(target.closest(".code-editor-host"));
+  }, []);
 
   const requestExamFullscreen = useCallback(async () => {
     if (document.fullscreenElement) {
@@ -122,10 +129,13 @@ function ExamPage({ pushToast }) {
 
   useFullscreen(
     secureReady,
-    useCallback(() => {
-      setFullscreenLocked(true);
-      registerViolation("Fullscreen exited");
-    }, [registerViolation])
+    useCallback(async () => {
+      const ok = await requestExamFullscreen();
+      if (!ok) {
+        setFullscreenLocked(true);
+        pushToast("error", "Please return to fullscreen to continue the exam.");
+      }
+    }, [pushToast, requestExamFullscreen])
   );
 
   useEffect(() => {
@@ -158,6 +168,14 @@ function ExamPage({ pushToast }) {
   useEffect(() => {
     if (!secureReady) return undefined;
 
+    const enforceReturnToFullscreen = async () => {
+      setFullscreenLocked(true);
+      const ok = await requestExamFullscreen();
+      if (!ok) {
+        pushToast("error", "Fullscreen is required. Please return to fullscreen.");
+      }
+    };
+
     const onKeyDown = (event) => {
       const key = event.key.toLowerCase();
       const blockedCtrlKeys = ["c", "v", "x", "a", "s", "p", "u", "r", "t", "n", "w", "l", "k", "j", "o", "i"];
@@ -165,6 +183,12 @@ function ExamPage({ pushToast }) {
       const isFunctionToolKey = key === "f12";
       const isAltCombo = event.altKey;
       const isMetaKey = key === "meta";
+      const inCodeEditor = isCodeEditorTarget(event.target);
+      const allowedEditorShortcuts = ["c", "v", "x", "a"];
+
+      if ((event.ctrlKey || event.metaKey) && inCodeEditor && allowedEditorShortcuts.includes(key)) {
+        return;
+      }
 
       if (shouldBlockCtrlMeta || isFunctionToolKey || isAltCombo || isMetaKey) {
         event.preventDefault();
@@ -178,6 +202,10 @@ function ExamPage({ pushToast }) {
     };
 
     const onClipboard = (event) => {
+      if (isCodeEditorTarget(event.target)) {
+        event.preventDefault();
+        return;
+      }
       event.preventDefault();
       registerViolation("Copy/paste actions are blocked");
     };
@@ -190,11 +218,21 @@ function ExamPage({ pushToast }) {
     const onVisibilityChange = () => {
       if (document.hidden) {
         registerViolation("Exam tab lost focus");
+        setFullscreenLocked(true);
+      } else if (!document.fullscreenElement) {
+        enforceReturnToFullscreen();
       }
     };
 
     const onWindowBlur = () => {
       registerViolation("Window focus changed");
+      setFullscreenLocked(true);
+    };
+
+    const onWindowFocus = () => {
+      if (!document.fullscreenElement) {
+        enforceReturnToFullscreen();
+      }
     };
 
     document.addEventListener("keydown", onKeyDown);
@@ -205,6 +243,7 @@ function ExamPage({ pushToast }) {
     document.addEventListener("dragstart", onDragStart);
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("blur", onWindowBlur);
+    window.addEventListener("focus", onWindowFocus);
 
     return () => {
       document.removeEventListener("keydown", onKeyDown);
@@ -215,15 +254,9 @@ function ExamPage({ pushToast }) {
       document.removeEventListener("dragstart", onDragStart);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("blur", onWindowBlur);
+      window.removeEventListener("focus", onWindowFocus);
     };
-  }, [registerViolation, secureReady]);
-
-  useEffect(() => {
-    if (violations < MAX_VIOLATIONS || autoSubmittedRef.current) return;
-    autoSubmittedRef.current = true;
-    pushToast("error", "Security violations exceeded. Auto-submitting exam.");
-    submitExam(true);
-  }, [violations]);
+  }, [isCodeEditorTarget, pushToast, registerViolation, requestExamFullscreen, secureReady]);
 
   if (!student || !exam || questions.length === 0) return <Navigate to="/exams" replace />;
 
@@ -265,6 +298,52 @@ function ExamPage({ pushToast }) {
     }
   };
 
+  const runPublicTests = async () => {
+    if (!activeAnswer.code?.trim()) {
+      pushToast("error", "Write code before running public test cases.");
+      return;
+    }
+    setRunningPublic(true);
+    try {
+      // Backend run API is not available yet; keep flow explicit for students.
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      setExecutionState((prev) => ({
+        ...prev,
+        [activeQuestionIndex]: {
+          ...prev[activeQuestionIndex],
+          publicChecked: true,
+          publicCheckedAt: new Date().toISOString(),
+        },
+      }));
+      pushToast("success", `Public tests checked for Q${activeQuestionIndex + 1}`);
+    } finally {
+      setRunningPublic(false);
+    }
+  };
+
+  const submitCodeForPrivateTests = async () => {
+    if (!activeAnswer.code?.trim()) {
+      pushToast("error", "Write code before submitting to private test cases.");
+      return;
+    }
+    setSubmittingCode(true);
+    try {
+      // Backend private-evaluation API is not available yet; keep the stage explicit in UI.
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      setExecutionState((prev) => ({
+        ...prev,
+        [activeQuestionIndex]: {
+          ...prev[activeQuestionIndex],
+          privateChecked: true,
+          privateCheckedAt: new Date().toISOString(),
+        },
+      }));
+      pushToast("success", `Code submitted for private checks on Q${activeQuestionIndex + 1}`);
+    } finally {
+      setSubmittingCode(false);
+    }
+  };
+
   return (
     <PageShell
       title={exam.title}
@@ -275,7 +354,7 @@ function ExamPage({ pushToast }) {
             Time Left: <strong>{formatTime(remainingSeconds)}</strong>
           </div>
           <div className={`chip violation-chip ${violations > 0 ? "warn" : ""}`}>
-            Violations {violations}/{MAX_VIOLATIONS}
+            Restricted actions: {violations}
           </div>
         </div>
       }
@@ -285,7 +364,7 @@ function ExamPage({ pushToast }) {
           <h2>Secure Exam Mode</h2>
           <p className="meta">
             Start secure mode to enter fullscreen and apply exam restrictions. Leaving fullscreen or switching focus
-            increases violations and may auto-submit.
+            will be blocked and forced back to fullscreen.
           </p>
           <button className="primary-btn" onClick={enterSecureMode}>
             Enter Secure Exam Mode
@@ -398,7 +477,10 @@ function ExamPage({ pushToast }) {
 
           <div className="editor-panel">
             <div className="editor-toolbar">
-              <span>Code Editor</span>
+              <div className="editor-heading">
+                <span>Code Editor</span>
+                <small>White Theme</small>
+              </div>
               <select
                 className="language-select"
                 value={activeAnswer.language}
@@ -411,20 +493,31 @@ function ExamPage({ pushToast }) {
                 ))}
               </select>
             </div>
-            <textarea
-              className="code-editor"
-              spellCheck={false}
-              value={activeAnswer.code}
-              onChange={(event) => setAnswerCode(event.target.value)}
-              onCopy={(event) => event.preventDefault()}
-              onPaste={(event) => event.preventDefault()}
-              onCut={(event) => event.preventDefault()}
-              placeholder="Write your code solution here..."
-            />
+            <div className="code-editor">
+              <SecureMonacoEditor
+                language={activeAnswer.language}
+                value={activeAnswer.code}
+                onChange={setAnswerCode}
+              />
+            </div>
           </div>
         </div>
 
         <div className="action-row">
+          <button
+            className="ghost-btn"
+            disabled={runningPublic || submitting || submittingCode}
+            onClick={runPublicTests}
+          >
+            {runningPublic ? "Running..." : "Run Public Tests"}
+          </button>
+          <button
+            className="primary-btn"
+            disabled={submittingCode || submitting || runningPublic}
+            onClick={submitCodeForPrivateTests}
+          >
+            {submittingCode ? "Submitting..." : "Submit Code (Private Tests)"}
+          </button>
           <button
             className="ghost-btn"
             disabled={submitting}

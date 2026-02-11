@@ -388,6 +388,17 @@ button:disabled {
   align-items: center;
   border-bottom: 1px solid #e3ebe7;
   font-weight: 700;
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbf9 100%);
+}
+
+.editor-heading {
+  display: grid;
+  gap: 2px;
+}
+
+.editor-heading small {
+  font-weight: 600;
+  color: #5d6e66;
 }
 
 .language-select {
@@ -397,18 +408,20 @@ button:disabled {
 
 .code-editor {
   border: 0;
-  border-radius: 0 0 12px 12px;
-  resize: none;
+  border-top: 1px solid #ebf1ee;
+  border-bottom: 1px solid #ebf1ee;
+  border-radius: 0;
   min-height: 420px;
-  font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
-  font-size: 0.88rem;
-  line-height: 1.5;
-  background: #0f1720;
-  color: #e5f0ff;
+  background: #ffffff;
+  overflow: hidden;
 }
 
-.code-editor:focus {
-  outline: none;
+.code-editor-host {
+  height: 100%;
+}
+
+.code-editor-host:focus-within {
+  box-shadow: inset 0 0 0 2px #d8efe5;
 }
 
 .question-card {
@@ -469,6 +482,8 @@ button:disabled {
   margin-top: 12px;
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .summary-grid {
