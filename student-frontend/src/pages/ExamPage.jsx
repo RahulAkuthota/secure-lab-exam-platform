@@ -37,6 +37,8 @@ function formatTime(totalSeconds) {
   return `${mins}:${secs}`;
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function ExamPage({ pushToast }) {
   const navigate = useNavigate();
   const token = studentStorage.get(studentStorage.keys.token);
@@ -265,6 +267,7 @@ function ExamPage({ pushToast }) {
     code: "",
     language: allowedLanguages[0],
   };
+  const activeExecution = executionState[activeQuestionIndex] || {};
 
   const setAnswerCode = (code) => {
     setAnswers((prev) => ({
@@ -305,17 +308,67 @@ function ExamPage({ pushToast }) {
     }
     setRunningPublic(true);
     try {
-      // Backend run API is not available yet; keep flow explicit for students.
-      await new Promise((resolve) => setTimeout(resolve, 350));
+      const response = await studentApi.submitCode(token, {
+        examId: exam.id,
+        questionIndex: activeQuestionIndex,
+        language: activeAnswer.language,
+        code: activeAnswer.code,
+        submissionType: "public",
+      });
+
       setExecutionState((prev) => ({
         ...prev,
         [activeQuestionIndex]: {
           ...prev[activeQuestionIndex],
           publicChecked: true,
           publicCheckedAt: new Date().toISOString(),
+          publicPending: Boolean(response.pending),
+          publicJobId: response.jobId || "",
+          publicStdout: response.result?.stdout || "",
+          publicStderr: response.result?.stderr || "",
+          publicError: response.result?.error || "",
+          publicExecutionTime: response.result?.executionTime || 0,
         },
       }));
-      pushToast("success", `Public tests checked for Q${activeQuestionIndex + 1}`);
+      if (response.pending) {
+        const maxAttempts = 30;
+        const intervalMs = 1000;
+        let resolved = false;
+
+        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+          await sleep(intervalMs);
+          const polled = await studentApi.getSubmitCodeResult(
+            token,
+            exam.id,
+            response.jobId
+          );
+
+          if (polled.pending) continue;
+
+          setExecutionState((prev) => ({
+            ...prev,
+            [activeQuestionIndex]: {
+              ...prev[activeQuestionIndex],
+              publicPending: false,
+              publicStdout: polled.result?.stdout || "",
+              publicStderr: polled.result?.stderr || "",
+              publicError: polled.result?.error || "",
+              publicExecutionTime: polled.result?.executionTime || 0,
+            },
+          }));
+          resolved = true;
+          break;
+        }
+        if (resolved) {
+          pushToast("success", `Public tests completed for Q${activeQuestionIndex + 1}`);
+        } else {
+          pushToast("success", `Public tests queued for Q${activeQuestionIndex + 1} (${response.jobId})`);
+        }
+      } else {
+        pushToast("success", `Public tests completed for Q${activeQuestionIndex + 1}`);
+      }
+    } catch (apiError) {
+      pushToast("error", apiError.message);
     } finally {
       setRunningPublic(false);
     }
@@ -537,6 +590,31 @@ function ExamPage({ pushToast }) {
             {submitting ? "Submitting..." : "Submit Exam"}
           </button>
         </div>
+        {activeExecution.publicChecked ? (
+          <section className="execution-result">
+            <div className="result-head">
+              <strong>Public Run Result</strong>
+              <span className="meta">
+                {activeExecution.publicPending
+                  ? `Queued (${activeExecution.publicJobId || "pending"})`
+                  : `Execution Time: ${activeExecution.publicExecutionTime || 0} ms`}
+              </span>
+            </div>
+            {activeExecution.publicError ? (
+              <p className="alert error">{activeExecution.publicError}</p>
+            ) : null}
+            <div className="result-grid">
+              <div className="result-block">
+                <p className="meta">stdout</p>
+                <pre>{activeExecution.publicStdout || "(empty)"}</pre>
+              </div>
+              <div className="result-block">
+                <p className="meta">stderr</p>
+                <pre>{activeExecution.publicStderr || "(empty)"}</pre>
+              </div>
+            </div>
+          </section>
+        ) : null}
         </section>
         ) : null}
         </>

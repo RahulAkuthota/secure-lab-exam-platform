@@ -291,8 +291,12 @@ async function start() {
         log("=====================================");
 
         await results.insertOne({
+          jobId: payload.jobId,
           studentId: payload.studentId,
+          rollNumber: payload.rollNumber,
           examId: payload.examId,
+          questionIndex: payload.questionIndex,
+          submissionType: payload.submissionType,
           language: payload.language,
           code: payload.code,
           stdout: executionResult.stdout,

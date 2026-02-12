@@ -60,4 +60,12 @@ export const studentApi = {
       body: JSON.stringify(payload),
     });
   },
+  getSubmitCodeResult(token, examId, jobId) {
+    const query = examId ? `?examId=${encodeURIComponent(examId)}` : "";
+    return request(`/student/submit-code-result/${encodeURIComponent(jobId)}${query}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
 };

@@ -1,6 +1,7 @@
 import express from "express";
 import {
   getActiveExams,
+  getSubmissionResult,
   submitCode,
   startExam,
   submitExam,
@@ -15,6 +16,7 @@ router.use(requireAuth, requireStudent);
 router.get("/active-exams", getActiveExams);
 router.post("/start-exam", startExam);
 router.post("/submit-code", requireStudentExamAccess, submitCode);
+router.get("/submit-code-result/:jobId", requireStudentExamAccess, getSubmissionResult);
 router.post("/submit-exam", requireStudentExamAccess, submitExam);
 
 export default router;

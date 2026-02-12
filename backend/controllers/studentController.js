@@ -4,6 +4,12 @@ import { Submission } from "../models/Submission.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { enqueueSubmissionJob } from "../utils/redisQueue.js";
 import { randomUUID } from "crypto";
+import mongoose from "mongoose";
+
+const PUBLIC_RESULT_WAIT_MS = Number(process.env.PUBLIC_RESULT_WAIT_MS || 12000);
+const PUBLIC_RESULT_POLL_MS = Number(process.env.PUBLIC_RESULT_POLL_MS || 300);
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const validateExamIsOpen = async (examId) => {
   const now = new Date();
@@ -246,9 +252,84 @@ export const submitCode = asyncHandler(async (req, res) => {
 
   const queueInfo = await enqueueSubmissionJob(job);
 
-  res.status(202).json({
-    message: "Submission queued successfully.",
+  if (submissionType === "private") {
+    return res.status(202).json({
+      message: "Submission queued successfully.",
+      jobId: job.jobId,
+      queue: queueInfo.queue,
+    });
+  }
+
+  const resultsCollection = mongoose.connection.collection("results");
+  const deadline = Date.now() + PUBLIC_RESULT_WAIT_MS;
+  let resultDoc = null;
+
+  while (Date.now() < deadline) {
+    resultDoc = await resultsCollection.findOne({ jobId: job.jobId });
+    if (resultDoc) break;
+    await sleep(PUBLIC_RESULT_POLL_MS);
+  }
+
+  if (!resultDoc) {
+    return res.status(200).json({
+      message: "Public tests queued. Result is still processing.",
+      jobId: job.jobId,
+      queue: queueInfo.queue,
+      pending: true,
+    });
+  }
+
+  res.status(200).json({
+    message: "Public tests executed.",
     jobId: job.jobId,
     queue: queueInfo.queue,
+    pending: false,
+    result: {
+      stdout: resultDoc.stdout || "",
+      stderr: resultDoc.stderr || "",
+      error: resultDoc.error || "",
+      executionTime: resultDoc.executionTime || 0,
+    },
+  });
+});
+
+export const getSubmissionResult = asyncHandler(async (req, res) => {
+  const { jobId } = req.params;
+  const tokenExamId = req.user.examId;
+  const effectiveExamId = req.query.examId || tokenExamId;
+
+  if (!jobId || typeof jobId !== "string") {
+    return res.status(400).json({ message: "jobId is required." });
+  }
+
+  if (!effectiveExamId) {
+    return res.status(400).json({ message: "examId is required." });
+  }
+
+  const resultsCollection = mongoose.connection.collection("results");
+  const resultDoc = await resultsCollection.findOne({
+    jobId: jobId.trim(),
+    studentId: req.user.sub,
+    examId: effectiveExamId.toString(),
+  });
+
+  if (!resultDoc) {
+    return res.status(200).json({
+      message: "Result is still processing.",
+      jobId: jobId.trim(),
+      pending: true,
+    });
+  }
+
+  res.status(200).json({
+    message: "Result available.",
+    jobId: jobId.trim(),
+    pending: false,
+    result: {
+      stdout: resultDoc.stdout || "",
+      stderr: resultDoc.stderr || "",
+      error: resultDoc.error || "",
+      executionTime: resultDoc.executionTime || 0,
+    },
   });
 });

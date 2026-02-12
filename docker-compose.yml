@@ -36,6 +36,8 @@ services:
 
   worker:
     build: ./worker
+    deploy:
+      replicas: 2
     env_file:
       - ./worker/.env
     environment:
