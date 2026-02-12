@@ -55,11 +55,13 @@ function ExamPage({ pushToast }) {
   const [fullscreenLocked, setFullscreenLocked] = useState(false);
   const [violations, setViolations] = useState(0);
   const [layoutMode, setLayoutMode] = useState("split");
+  const [splitRatio, setSplitRatio] = useState(48);
   const [executionState, setExecutionState] = useState({});
   const [runningPublic, setRunningPublic] = useState(false);
   const [submittingCode, setSubmittingCode] = useState(false);
   const autoSubmittedRef = useRef(false);
   const violationThrottleRef = useRef(0);
+  const splitGridRef = useRef(null);
   const remainingSeconds = useCountdown(examSession?.expiresAt);
   const allowedLanguages =
     Array.isArray(exam?.allowedLanguages) && exam.allowedLanguages.length
@@ -180,15 +182,35 @@ function ExamPage({ pushToast }) {
 
     const onKeyDown = (event) => {
       const key = event.key.toLowerCase();
+      const isCtrlOrMeta = event.ctrlKey || event.metaKey;
       const blockedCtrlKeys = ["c", "v", "x", "a", "s", "p", "u", "r", "t", "n", "w", "l", "k", "j", "o", "i"];
-      const shouldBlockCtrlMeta = (event.ctrlKey || event.metaKey) && blockedCtrlKeys.includes(key);
+      const shouldBlockCtrlMeta = isCtrlOrMeta && blockedCtrlKeys.includes(key);
       const isFunctionToolKey = key === "f12";
       const isAltCombo = event.altKey;
       const isMetaKey = key === "meta";
       const inCodeEditor = isCodeEditorTarget(event.target);
       const allowedEditorShortcuts = ["c", "v", "x", "a"];
+      const isPrivateSubmitShortcut = isCtrlOrMeta && key === "enter";
+      const isPublicRunShortcut =
+        isCtrlOrMeta && (key === "'" || key === '"' || event.code === "Quote");
 
-      if ((event.ctrlKey || event.metaKey) && inCodeEditor && allowedEditorShortcuts.includes(key)) {
+      if (inCodeEditor && isPrivateSubmitShortcut) {
+        event.preventDefault();
+        if (!submittingCode && !submitting && !runningPublic) {
+          submitCodeForPrivateTests();
+        }
+        return;
+      }
+
+      if (inCodeEditor && isPublicRunShortcut) {
+        event.preventDefault();
+        if (!runningPublic && !submitting && !submittingCode) {
+          runPublicTests();
+        }
+        return;
+      }
+
+      if (isCtrlOrMeta && inCodeEditor && allowedEditorShortcuts.includes(key)) {
         return;
       }
 
@@ -258,7 +280,47 @@ function ExamPage({ pushToast }) {
       window.removeEventListener("blur", onWindowBlur);
       window.removeEventListener("focus", onWindowFocus);
     };
-  }, [isCodeEditorTarget, pushToast, registerViolation, requestExamFullscreen, secureReady]);
+  }, [
+    isCodeEditorTarget,
+    pushToast,
+    registerViolation,
+    requestExamFullscreen,
+    runPublicTests,
+    secureReady,
+    submitCodeForPrivateTests,
+    runningPublic,
+    submitting,
+    submittingCode,
+  ]);
+
+  useEffect(() => {
+    if (layoutMode !== "split") return undefined;
+
+    const onMouseMove = (event) => {
+      const grid = splitGridRef.current;
+      if (!grid || !grid.dataset.resizing) return;
+      const rect = grid.getBoundingClientRect();
+      const ratio = ((event.clientX - rect.left) / rect.width) * 100;
+      const clamped = Math.min(70, Math.max(30, ratio));
+      setSplitRatio(clamped);
+    };
+
+    const onMouseUp = () => {
+      const grid = splitGridRef.current;
+      if (grid?.dataset.resizing) {
+        delete grid.dataset.resizing;
+        document.body.classList.remove("resizing-panels");
+      }
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      document.body.classList.remove("resizing-panels");
+    };
+  }, [layoutMode]);
 
   if (!student || !exam || questions.length === 0) return <Navigate to="/exams" replace />;
 
@@ -301,7 +363,7 @@ function ExamPage({ pushToast }) {
     }
   };
 
-  const runPublicTests = async () => {
+  async function runPublicTests() {
     if (!activeAnswer.code?.trim()) {
       pushToast("error", "Write code before running public test cases.");
       return;
@@ -372,9 +434,9 @@ function ExamPage({ pushToast }) {
     } finally {
       setRunningPublic(false);
     }
-  };
+  }
 
-  const submitCodeForPrivateTests = async () => {
+  async function submitCodeForPrivateTests() {
     if (!activeAnswer.code?.trim()) {
       pushToast("error", "Write code before submitting to private test cases.");
       return;
@@ -403,19 +465,25 @@ function ExamPage({ pushToast }) {
     } finally {
       setSubmittingCode(false);
     }
-  };
+  }
 
   return (
     <PageShell
       title={exam.title}
-      subtitle={`${student.name} (${student.rollNumber})`}
+      subtitle={student.name}
       rightAction={
-        <div className="exam-meta-row">
-          <div className="timer-chip">
-            Time Left: <strong>{formatTime(remainingSeconds)}</strong>
+        <div className="exam-meta-row always-visible-meta">
+          <div className="chip student-id-chip">
+            <span className="chip-label">Student ID</span>
+            <strong>{student.rollNumber}</strong>
+          </div>
+          <div className="chip timer-chip">
+            <span className="chip-label">Time Left</span>
+            <strong>{formatTime(remainingSeconds)}</strong>
           </div>
           <div className={`chip violation-chip ${violations > 0 ? "warn" : ""}`}>
-            Restricted actions: {violations}
+            <span className="chip-label">Restricted Actions</span>
+            <strong>{violations}</strong>
           </div>
         </div>
       }
@@ -427,6 +495,16 @@ function ExamPage({ pushToast }) {
             Start secure mode to enter fullscreen and apply exam restrictions. Leaving fullscreen or switching focus
             will be blocked and forced back to fullscreen.
           </p>
+          <div className="instruction-box">
+            <p className="instruction-title">Exam Instructions</p>
+            <ul className="instruction-list">
+              <li>Restricted actions count increases when blocked actions are attempted.</li>
+              <li>Allowed shortcuts inside editor: <strong>Ctrl/Cmd + C, V, X, A</strong>.</li>
+              <li>Run public tests: <strong>Ctrl/Cmd + '</strong> (or <strong>Ctrl/Cmd + "</strong>).</li>
+              <li>Submit to private tests: <strong>Ctrl/Cmd + Enter</strong>.</li>
+              <li>Do not switch tabs/windows or exit fullscreen during exam.</li>
+            </ul>
+          </div>
           <button className="primary-btn" onClick={enterSecureMode}>
             Enter Secure Exam Mode
           </button>
@@ -476,7 +554,11 @@ function ExamPage({ pushToast }) {
             </div>
           </div>
         </div>
-        <div className={`leetcode-grid mode-${layoutMode}`}>
+        <div
+          ref={splitGridRef}
+          className={`leetcode-grid mode-${layoutMode}`}
+          style={{ "--split-ratio": `${splitRatio}%` }}
+        >
           <div className="problem-panel">
             <div className="question-nav-row">
               {questions.map((_, index) => (
@@ -536,6 +618,20 @@ function ExamPage({ pushToast }) {
             </article>
           </div>
 
+          {layoutMode === "split" ? (
+            <button
+              className="panel-resizer"
+              type="button"
+              aria-label="Resize question and editor panels"
+              onMouseDown={() => {
+                const grid = splitGridRef.current;
+                if (grid) {
+                  grid.dataset.resizing = "true";
+                  document.body.classList.add("resizing-panels");
+                }
+              }}
+            />
+          ) : null}
           <div className="editor-panel">
             <div className="editor-toolbar">
               <div className="editor-heading">
@@ -569,15 +665,17 @@ function ExamPage({ pushToast }) {
             className="ghost-btn"
             disabled={runningPublic || submitting || submittingCode}
             onClick={runPublicTests}
+            title="Shortcut: Ctrl/Cmd + '"
           >
-            {runningPublic ? "Running..." : "Run Public Tests"}
+            {runningPublic ? "Running..." : "Run Public Tests (Ctrl/Cmd + ')"}
           </button>
           <button
             className="primary-btn"
             disabled={submittingCode || submitting || runningPublic}
             onClick={submitCodeForPrivateTests}
+            title="Shortcut: Ctrl/Cmd + Enter"
           >
-            {submittingCode ? "Submitting..." : "Submit Code (Private Tests)"}
+            {submittingCode ? "Submitting..." : "Submit Code (Private Tests) (Ctrl/Cmd + Enter)"}
           </button>
           <button
             className="ghost-btn"

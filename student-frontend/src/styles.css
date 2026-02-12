@@ -56,38 +56,68 @@ body {
 .shell {
   position: relative;
   z-index: 1;
-  max-width: 1060px;
+  max-width: 1420px;
   margin: 0 auto;
-  padding: 28px 16px 52px;
+  padding: 10px 18px 52px;
   display: grid;
-  gap: 16px;
+  gap: 18px;
 }
 
 .shell-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  position: sticky;
+  top: 0;
+  z-index: 140;
+  display: grid;
+  grid-template-columns: minmax(280px, 1.25fr) minmax(360px, 1fr);
   gap: 10px;
+  align-items: stretch;
+  padding: 10px 12px;
+  border-radius: 18px;
+  border: 1px solid #d0dfd8;
+  background: linear-gradient(
+      115deg,
+      color-mix(in oklab, #ffffff 90%, #e8f5ee 10%) 0%,
+      color-mix(in oklab, #ffffff 84%, #e8f3fb 16%) 100%
+    );
+  box-shadow: 0 12px 30px rgba(13, 46, 52, 0.09);
+  backdrop-filter: blur(10px);
   animation: rise 0.4s ease;
+}
+
+.shell-header-copy {
+  display: grid;
+  align-content: center;
 }
 
 .eyebrow {
   margin: 0;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  font-size: 0.72rem;
-  color: var(--accent);
-  font-weight: 800;
+  font-size: 0.68rem;
+  color: #0c5485;
+  font-weight: 900;
+  justify-self: start;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid #c0d8ef;
+  background: #eef7ff;
 }
 
 .shell-header h1 {
-  margin: 6px 0 8px;
-  font-size: clamp(1.4rem, 2vw, 2rem);
+  margin: 6px 0 2px;
+  font-size: clamp(1.3rem, 2vw, 1.9rem);
+  letter-spacing: -0.01em;
 }
 
 .subtitle {
   margin: 0;
-  color: var(--muted);
+  color: #4b616d;
+  font-size: 0.9rem;
+}
+
+.shell-header-meta {
+  display: grid;
+  align-content: stretch;
 }
 
 .card {
@@ -210,35 +240,68 @@ button:disabled {
   color: var(--muted);
 }
 
-.timer-chip {
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: #ecf7f1;
-  color: #0f6f4f;
-  border: 1px solid #bfdfd0;
-  font-weight: 700;
-}
-
 .exam-meta-row {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  align-items: stretch;
   gap: 8px;
 }
 
+.always-visible-meta {
+  position: static;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+.student-id-chip {
+  background: linear-gradient(135deg, #f2f9ff 0%, #e9f4ff 100%);
+  border-color: #c9def4;
+  color: #0a4f82;
+}
+
 .violation-chip.warn {
-  background: #fff2f1;
-  border-color: #f5d1cd;
+  background: linear-gradient(135deg, #fff5f4 0%, #ffefed 100%);
+  border-color: #f5d3ce;
   color: #b42318;
 }
 
 .chip {
-  background: #eef7f3;
-  color: #186746;
-  border: 1px solid #cbe8db;
-  padding: 5px 10px;
-  border-radius: 999px;
-  font-size: 0.82rem;
+  background: linear-gradient(135deg, #f2f9f6 0%, #ebf7f2 100%);
+  color: #18543f;
+  border: 1px solid #c8e2d7;
+  padding: 8px 10px;
+  border-radius: 12px;
+  font-size: 0.8rem;
   font-weight: 700;
+  display: grid;
+  gap: 2px;
+  min-height: 54px;
+  align-content: center;
+}
+
+.chip-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.78;
+}
+
+.chip strong {
+  display: block;
+  font-size: 0.98rem;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+}
+
+.timer-chip {
+  background: linear-gradient(135deg, #eefaf3 0%, #e7f6ee 100%);
+  border-color: #bfdccf;
+  color: #0f6f4f;
 }
 
 .exam-header-actions {
@@ -260,6 +323,28 @@ button:disabled {
 .secure-gate {
   display: grid;
   gap: 10px;
+}
+
+.instruction-box {
+  border: 1px solid #d2e2db;
+  border-radius: 10px;
+  background: #f8fcfa;
+  padding: 10px 12px;
+}
+
+.instruction-title {
+  margin: 0 0 6px;
+  font-weight: 800;
+  color: #1d4d40;
+}
+
+.instruction-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #2f4756;
+  display: grid;
+  gap: 4px;
+  font-size: 0.88rem;
 }
 
 .secure-overlay {
@@ -301,9 +386,10 @@ button:disabled {
 
 .leetcode-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(320px, 1fr);
-  gap: 10px;
+  grid-template-columns: minmax(280px, var(--split-ratio, 48%)) 8px minmax(320px, 1fr);
+  gap: 0;
   margin-top: 10px;
+  min-height: 68vh;
 }
 
 .problem-panel,
@@ -317,6 +403,15 @@ button:disabled {
 .problem-panel {
   display: grid;
   grid-template-rows: auto auto 1fr;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 0;
+}
+
+.editor-panel {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 0;
 }
 
 .question-nav-row {
@@ -379,6 +474,40 @@ button:disabled {
 .editor-panel {
   display: grid;
   grid-template-rows: auto 1fr;
+}
+
+.panel-resizer {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  width: 8px;
+  cursor: col-resize;
+  background: linear-gradient(180deg, #e7efeb 0%, #d8e4de 50%, #e7efeb 100%);
+}
+
+.panel-resizer:hover {
+  background: linear-gradient(180deg, #dce9e3 0%, #c9dad1 50%, #dce9e3 100%);
+}
+
+body.resizing-panels {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.leetcode-grid.mode-question,
+.leetcode-grid.mode-editor {
+  min-height: 58vh;
+}
+
+.leetcode-grid.mode-question .problem-panel,
+.leetcode-grid.mode-editor .editor-panel {
+  border-radius: 12px;
+  border: 1px solid #d4e2db;
+}
+
+.leetcode-grid.mode-question .panel-resizer,
+.leetcode-grid.mode-editor .panel-resizer {
+  display: none;
 }
 
 .editor-toolbar {
@@ -650,29 +779,57 @@ select:focus {
 
   .leetcode-grid {
     grid-template-columns: 1fr;
+    gap: 10px;
   }
 
   .problem-panel,
   .editor-panel {
     min-height: auto;
+    border-radius: 12px;
+    border: 1px solid #d4e2db;
+  }
+
+  .problem-panel {
+    border-right: 1px solid #d4e2db;
+  }
+
+  .editor-panel {
+    border-left: 1px solid #d4e2db;
   }
 
   .code-editor {
     min-height: 320px;
   }
 
+  .panel-resizer {
+    display: none;
+  }
+
   .result-grid {
     grid-template-columns: 1fr;
+  }
+
+  .shell-header {
+    grid-template-columns: 1fr;
+    top: 0;
+  }
+
+  .exam-meta-row {
+    grid-template-columns: repeat(2, minmax(140px, 1fr));
   }
 }
 
 @media (max-width: 700px) {
   .shell-header {
-    flex-direction: column;
+    padding: 12px;
+  }
+
+  .always-visible-meta {
+    width: 100%;
   }
 
   .exam-meta-row {
-    flex-wrap: wrap;
+    grid-template-columns: 1fr;
   }
 
   .exam-header-actions {
