@@ -38,6 +38,30 @@ function formatTime(totalSeconds) {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const appEnv = (
+  import.meta.env.VITE_APP_ENV ||
+  import.meta.env.MODE ||
+  "development"
+).toLowerCase();
+const isProdEnvironment = appEnv === "production" || appEnv === "prod";
+const allowEditorClipboard = !isProdEnvironment;
+
+function buildPublicResultMessage(execution) {
+  const evaluation = execution?.publicEvaluation;
+  if (!evaluation) {
+    return execution?.publicError || "Execution completed.";
+  }
+
+  if (evaluation.allPassed) {
+    return `All test cases passed (${evaluation.passedCases}/${evaluation.totalCases}).`;
+  }
+
+  if (evaluation.failedCaseNumber) {
+    return `Failed at Test Case #${evaluation.failedCaseNumber}.`;
+  }
+
+  return "Some test cases failed.";
+}
 
 function ExamPage({ pushToast }) {
   const navigate = useNavigate();
@@ -46,8 +70,9 @@ function ExamPage({ pushToast }) {
   const exam = studentStorage.get(studentStorage.keys.exam);
   const questions = studentStorage.get(studentStorage.keys.questions) || [];
   const examSession = studentStorage.get(studentStorage.keys.examSession);
+  const storedDraftAnswers = studentStorage.get(studentStorage.keys.answerDrafts) || {};
 
-  const [answers, setAnswers] = useState({});
+  const [answers, setAnswers] = useState(storedDraftAnswers);
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
   const [activeTab, setActiveTab] = useState("description");
   const [submitting, setSubmitting] = useState(false);
@@ -89,6 +114,7 @@ function ExamPage({ pushToast }) {
         total: questions.length,
         auto: isAuto,
       });
+      studentStorage.set(studentStorage.keys.answerDrafts, {});
       pushToast("success", isAuto ? "Auto-submitted due to timer end" : "Exam submitted");
       navigate("/summary");
     } catch (apiError) {
@@ -190,11 +216,13 @@ function ExamPage({ pushToast }) {
       const isMetaKey = key === "meta";
       const inCodeEditor = isCodeEditorTarget(event.target);
       const allowedEditorShortcuts = ["c", "v", "x", "a"];
-      const isPrivateSubmitShortcut = isCtrlOrMeta && key === "enter";
+      const isEnterKey =
+        event.key === "Enter" || event.code === "Enter" || event.code === "NumpadEnter";
+      const isPrivateSubmitShortcut = isCtrlOrMeta && isEnterKey;
       const isPublicRunShortcut =
         isCtrlOrMeta && (key === "'" || key === '"' || event.code === "Quote");
 
-      if (inCodeEditor && isPrivateSubmitShortcut) {
+      if (isPrivateSubmitShortcut) {
         event.preventDefault();
         if (!submittingCode && !submitting && !runningPublic) {
           submitCodeForPrivateTests();
@@ -210,7 +238,12 @@ function ExamPage({ pushToast }) {
         return;
       }
 
-      if (isCtrlOrMeta && inCodeEditor && allowedEditorShortcuts.includes(key)) {
+      if (
+        allowEditorClipboard &&
+        isCtrlOrMeta &&
+        inCodeEditor &&
+        allowedEditorShortcuts.includes(key)
+      ) {
         return;
       }
 
@@ -227,6 +260,9 @@ function ExamPage({ pushToast }) {
 
     const onClipboard = (event) => {
       if (isCodeEditorTarget(event.target)) {
+        if (allowEditorClipboard) {
+          return;
+        }
         event.preventDefault();
         return;
       }
@@ -259,7 +295,7 @@ function ExamPage({ pushToast }) {
       }
     };
 
-    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("contextmenu", onContextMenu);
     document.addEventListener("copy", onClipboard);
     document.addEventListener("cut", onClipboard);
@@ -270,7 +306,7 @@ function ExamPage({ pushToast }) {
     window.addEventListener("focus", onWindowFocus);
 
     return () => {
-      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("contextmenu", onContextMenu);
       document.removeEventListener("copy", onClipboard);
       document.removeEventListener("cut", onClipboard);
@@ -291,6 +327,7 @@ function ExamPage({ pushToast }) {
     runningPublic,
     submitting,
     submittingCode,
+    allowEditorClipboard,
   ]);
 
   useEffect(() => {
@@ -332,25 +369,33 @@ function ExamPage({ pushToast }) {
   const activeExecution = executionState[activeQuestionIndex] || {};
 
   const setAnswerCode = (code) => {
-    setAnswers((prev) => ({
-      ...prev,
-      [activeQuestionIndex]: {
-        ...prev[activeQuestionIndex],
-        language: prev[activeQuestionIndex]?.language || allowedLanguages[0],
-        code,
-      },
-    }));
+    setAnswers((prev) => {
+      const next = {
+        ...prev,
+        [activeQuestionIndex]: {
+          ...prev[activeQuestionIndex],
+          language: prev[activeQuestionIndex]?.language || allowedLanguages[0],
+          code,
+        },
+      };
+      studentStorage.set(studentStorage.keys.answerDrafts, next);
+      return next;
+    });
   };
 
   const setAnswerLanguage = (language) => {
-    setAnswers((prev) => ({
-      ...prev,
-      [activeQuestionIndex]: {
-        ...prev[activeQuestionIndex],
-        language,
-        code: prev[activeQuestionIndex]?.code || "",
-      },
-    }));
+    setAnswers((prev) => {
+      const next = {
+        ...prev,
+        [activeQuestionIndex]: {
+          ...prev[activeQuestionIndex],
+          language,
+          code: prev[activeQuestionIndex]?.code || "",
+        },
+      };
+      studentStorage.set(studentStorage.keys.answerDrafts, next);
+      return next;
+    });
   };
 
   const enterSecureMode = async () => {
@@ -390,12 +435,14 @@ function ExamPage({ pushToast }) {
           publicStderr: response.result?.stderr || "",
           publicError: response.result?.error || "",
           publicExecutionTime: response.result?.executionTime || 0,
+          publicEvaluation: response.result?.evaluation || null,
         },
       }));
       if (response.pending) {
         const maxAttempts = 30;
         const intervalMs = 1000;
         let resolved = false;
+        let resolvedFailedCaseNumber = null;
 
         for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
           await sleep(intervalMs);
@@ -416,18 +463,35 @@ function ExamPage({ pushToast }) {
               publicStderr: polled.result?.stderr || "",
               publicError: polled.result?.error || "",
               publicExecutionTime: polled.result?.executionTime || 0,
+              publicEvaluation: polled.result?.evaluation || null,
             },
           }));
+          resolvedFailedCaseNumber = polled.result?.evaluation?.failedCaseNumber || null;
           resolved = true;
           break;
         }
         if (resolved) {
-          pushToast("success", `Public tests completed for Q${activeQuestionIndex + 1}`);
+          if (resolvedFailedCaseNumber) {
+            pushToast(
+              "error",
+              `Public tests failed at Test Case #${resolvedFailedCaseNumber} for Q${activeQuestionIndex + 1}`
+            );
+          } else {
+            pushToast("success", `Public tests completed for Q${activeQuestionIndex + 1}`);
+          }
         } else {
           pushToast("success", `Public tests queued for Q${activeQuestionIndex + 1} (${response.jobId})`);
         }
       } else {
-        pushToast("success", `Public tests completed for Q${activeQuestionIndex + 1}`);
+        const failedCase = response.result?.evaluation?.failedCaseNumber;
+        if (failedCase) {
+          pushToast(
+            "error",
+            `Public tests failed at Test Case #${failedCase} for Q${activeQuestionIndex + 1}`
+          );
+        } else {
+          pushToast("success", `Public tests completed for Q${activeQuestionIndex + 1}`);
+        }
       }
     } catch (apiError) {
       pushToast("error", apiError.message);
@@ -459,7 +523,13 @@ function ExamPage({ pushToast }) {
           privateJobId: response.jobId,
         },
       }));
-      pushToast("success", `Queued private check for Q${activeQuestionIndex + 1} (${response.jobId})`);
+      studentStorage.set(studentStorage.keys.privateResultJob, {
+        jobId: response.jobId,
+        questionIndex: activeQuestionIndex,
+        queuedAt: new Date().toISOString(),
+      });
+      pushToast("success", `Queued private check for Q${activeQuestionIndex + 1}`);
+      navigate("/private-results");
     } catch (apiError) {
       pushToast("error", apiError.message);
     } finally {
@@ -499,9 +569,12 @@ function ExamPage({ pushToast }) {
             <p className="instruction-title">Exam Instructions</p>
             <ul className="instruction-list">
               <li>Restricted actions count increases when blocked actions are attempted.</li>
-              <li>Allowed shortcuts inside editor: <strong>Ctrl/Cmd + C, V, X, A</strong>.</li>
+              <li>
+                Editor clipboard shortcuts ({`Ctrl/Cmd + C, V, X, A`}):{" "}
+                <strong>{allowEditorClipboard ? "Enabled (dev)" : "Disabled (prod)"}</strong>.
+              </li>
               <li>Run public tests: <strong>Ctrl/Cmd + '</strong> (or <strong>Ctrl/Cmd + "</strong>).</li>
-              <li>Submit to private tests: <strong>Ctrl/Cmd + Enter</strong>.</li>
+              <li>Submit to private tests: <strong>Ctrl/Cmd + Enter</strong> (works from any exam focus).</li>
               <li>Do not switch tabs/windows or exit fullscreen during exam.</li>
             </ul>
           </div>
@@ -700,6 +773,37 @@ function ExamPage({ pushToast }) {
             </div>
             {activeExecution.publicError ? (
               <p className="alert error">{activeExecution.publicError}</p>
+            ) : null}
+            {!activeExecution.publicPending ? (
+              <p
+                className={`alert ${
+                  activeExecution.publicEvaluation?.allPassed ? "success" : "error"
+                }`}
+              >
+                {buildPublicResultMessage(activeExecution)}
+              </p>
+            ) : null}
+            {Array.isArray(activeExecution.publicEvaluation?.cases) &&
+            activeExecution.publicEvaluation.cases.length > 0 ? (
+              <div className="case-status-list">
+                {activeExecution.publicEvaluation.cases.map((testCase) => (
+                  <div
+                    key={`public-case-${activeQuestionIndex}-${testCase.caseNumber}`}
+                    className={`case-status-item ${testCase.passed ? "pass" : "fail"}`}
+                  >
+                    <p>
+                      <strong>Test Case #{testCase.caseNumber}</strong> - {testCase.status}
+                    </p>
+                    <p className="meta">Execution Time: {testCase.executionTime || 0} ms</p>
+                    {!testCase.passed ? (
+                      <p className="meta">
+                        Expected: {testCase.expectedOutput || "(empty)"} | Received:{" "}
+                        {testCase.actualOutput || "(empty)"}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
             ) : null}
             <div className="result-grid">
               <div className="result-block">

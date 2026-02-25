@@ -1,6 +1,8 @@
 import { Exam, SUPPORTED_LANGUAGES } from "../models/Exam.js";
 import { QuestionPaper } from "../models/QuestionPaper.js";
+import { Student } from "../models/Student.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import mongoose from "mongoose";
 
 const normalizeAllowedLanguages = (allowedLanguages) => {
   const normalizedLanguages = Array.isArray(allowedLanguages)
@@ -228,4 +230,116 @@ export const deactivateExam = asyncHandler(async (req, res) => {
   await exam.save();
 
   res.status(200).json({ message: "Exam deactivated.", exam });
+});
+
+export const getExamResults = asyncHandler(async (req, res) => {
+  const { examId } = req.params;
+  const submissionType = String(req.query.submissionType || "private").toLowerCase();
+
+  if (!["public", "private"].includes(submissionType)) {
+    return res.status(400).json({ message: "submissionType must be 'public' or 'private'." });
+  }
+
+  const exam = await Exam.findOne({ _id: examId, facultyId: req.user.sub })
+    .select("_id title")
+    .lean();
+  if (!exam) {
+    return res.status(404).json({ message: "Exam not found for this faculty." });
+  }
+
+  const resultsCollection = mongoose.connection.collection("results");
+  const rows = await resultsCollection
+    .aggregate([
+      {
+        $match: {
+          examId: examId.toString(),
+          submissionType,
+        },
+      },
+      { $sort: { timestamp: -1 } },
+      {
+        $group: {
+          _id: {
+            studentId: "$studentId",
+            questionIndex: "$questionIndex",
+            submissionType: "$submissionType",
+          },
+          doc: { $first: "$$ROOT" },
+        },
+      },
+      { $replaceRoot: { newRoot: "$doc" } },
+      {
+        $project: {
+          _id: 0,
+          jobId: 1,
+          studentId: 1,
+          rollNumber: 1,
+          questionIndex: 1,
+          submissionType: 1,
+          language: 1,
+          executionTime: 1,
+          timestamp: 1,
+          error: 1,
+          evaluation: 1,
+        },
+      },
+      { $sort: { rollNumber: 1, questionIndex: 1 } },
+    ])
+    .toArray();
+
+  const uniqueStudentIds = [...new Set(rows.map((row) => row.studentId).filter(Boolean))];
+  const validStudentObjectIds = uniqueStudentIds
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+
+  const students = await Student.find({ _id: { $in: validStudentObjectIds } })
+    .select("_id name rollNumber")
+    .lean();
+  const studentMap = new Map(students.map((student) => [student._id.toString(), student]));
+
+  const normalizedRows = rows.map((row) => {
+    const student = studentMap.get(String(row.studentId));
+    const totalCases = row.evaluation?.totalCases || 0;
+    const passedCases = row.evaluation?.passedCases || 0;
+    const scorePercent = totalCases > 0 ? Math.round((passedCases / totalCases) * 100) : 0;
+    const allPassed = Boolean(row.evaluation?.allPassed);
+    const failedCaseNumber = row.evaluation?.failedCaseNumber || null;
+
+    let status = "Pending";
+    if (row.error && !row.evaluation) {
+      status = "Error";
+    } else if (allPassed) {
+      status = "Passed";
+    } else if (totalCases > 0) {
+      status = "Failed";
+    }
+
+    return {
+      jobId: row.jobId,
+      studentId: row.studentId,
+      studentName: student?.name || "Unknown Student",
+      rollNumber: row.rollNumber || student?.rollNumber || "-",
+      questionIndex: row.questionIndex,
+      submissionType: row.submissionType,
+      language: row.language,
+      executionTime: row.executionTime || 0,
+      timestamp: row.timestamp,
+      status,
+      totalCases,
+      passedCases,
+      scorePercent,
+      failedCaseNumber,
+      error: row.error || "",
+    };
+  });
+
+  res.status(200).json({
+    exam: {
+      id: exam._id,
+      title: exam.title,
+    },
+    submissionType,
+    count: normalizedRows.length,
+    results: normalizedRows,
+  });
 });

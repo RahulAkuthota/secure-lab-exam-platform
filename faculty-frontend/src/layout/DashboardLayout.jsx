@@ -34,6 +34,7 @@ function DashboardLayout({ title, subtitle, children, onRefresh }) {
         </NavLink>
         <NavLink to="/dashboard/create-exam">Create Exam</NavLink>
         <NavLink to="/dashboard/manage-exams">Manage Exams</NavLink>
+        <NavLink to="/dashboard/results">Results</NavLink>
       </nav>
       {children}
     </PageShell>

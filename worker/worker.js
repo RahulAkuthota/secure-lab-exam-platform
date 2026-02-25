@@ -88,10 +88,10 @@ function appendChunkWithLimit(current, chunk, bytesUsed, maxBytes) {
   };
 }
 
-function runAttachedContainer(containerName, timeoutMs, maxOutputBytes) {
+function runAttachedContainer(containerName, stdinData, timeoutMs, maxOutputBytes) {
   return new Promise((resolve) => {
-    const child = spawn("docker", ["start", "-a", containerName], {
-      stdio: ["ignore", "pipe", "pipe"],
+    const child = spawn("docker", ["start", "-a", "-i", containerName], {
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
     let stdout = "";
@@ -172,10 +172,21 @@ function runAttachedContainer(containerName, timeoutMs, maxOutputBytes) {
         error: terminationReason || fallbackError,
       });
     });
+
+    try {
+      const rawInput = typeof stdinData === "string" ? stdinData : "";
+      const normalizedInput =
+        rawInput.length > 0 && !rawInput.endsWith("\n") ? `${rawInput}\n` : rawInput;
+      child.stdin.write(normalizedInput);
+    } catch (_ignore) {
+      // Process may already be closed.
+    } finally {
+      child.stdin.end();
+    }
   });
 }
 
-async function runCode(job) {
+async function runCode(job, input = "") {
   const { language, code } = job;
   const image = EXECUTOR_IMAGES[language];
 
@@ -191,6 +202,8 @@ async function runCode(job) {
 
   let sourceFilePath = "";
   let containerFilePath = "";
+  const inputFilePath = `${workDir}/stdin.txt`;
+  const containerInputPath = "/sandbox/.stdin";
 
   if (language === "c") {
     sourceFilePath = `${workDir}/main.c`;
@@ -206,21 +219,31 @@ async function runCode(job) {
   }
 
   fs.writeFileSync(sourceFilePath, code);
+  const normalizedInput =
+    typeof input === "string" && input.length > 0 && !input.endsWith("\n")
+      ? `${input}\n`
+      : input || "";
+  fs.writeFileSync(inputFilePath, normalizedInput);
 
   const createCmd = `docker create --name ${containerName} --network none --memory 128m --cpus 0.5 --pids-limit 64 ${image}`;
   const copyCmd = `docker cp "${sourceFilePath}" "${containerName}:${containerFilePath}"`;
-  const startCmd = `docker start -a ${containerName}`;
+  const copyInputCmd = `docker cp "${inputFilePath}" "${containerName}:${containerInputPath}"`;
+  const startCmd = `docker start -a -i ${containerName}`;
 
   log("Running Docker Commands:");
   log(createCmd);
   log(copyCmd);
+  log(copyInputCmd);
+  log(`Input bytes: ${Buffer.byteLength(normalizedInput)}`);
   log(`${startCmd} (timeout=${EXECUTION_TIMEOUT_MS}ms, maxOutput=${MAX_OUTPUT_BYTES} bytes)`);
 
   try {
     await runCommand(createCmd);
     await runCommand(copyCmd);
+    await runCommand(copyInputCmd);
     const result = await runAttachedContainer(
       containerName,
+      input,
       EXECUTION_TIMEOUT_MS,
       MAX_OUTPUT_BYTES
     );
@@ -247,6 +270,103 @@ async function runCode(job) {
   }
 }
 
+function normalizeOutput(value) {
+  return (value || "").replace(/\r\n/g, "\n").trim();
+}
+
+async function evaluateSubmission(payload) {
+  const testCases = Array.isArray(payload.testCases) ? payload.testCases : [];
+
+  if (testCases.length === 0) {
+    return {
+      stdout: "",
+      stderr: "",
+      error: "No test cases found for this submission. Evaluation aborted.",
+      executionTime: 0,
+      evaluation: {
+        totalCases: 0,
+        passedCases: 0,
+        allPassed: false,
+        failedCaseNumber: null,
+        cases: [],
+      },
+    };
+  }
+
+  const caseResults = [];
+  let passedCases = 0;
+  let totalExecutionTime = 0;
+
+  for (let index = 0; index < testCases.length; index += 1) {
+    const testCase = testCases[index];
+    const caseNumber = index + 1;
+    const caseInput = typeof testCase?.input === "string" ? testCase.input : "";
+    const expectedOutput =
+      typeof testCase?.expectedOutput === "string" ? testCase.expectedOutput : "";
+
+    const runStartedAt = Date.now();
+    const execution = await runCode(payload, caseInput);
+    const executionTime = Date.now() - runStartedAt;
+    totalExecutionTime += executionTime;
+
+    const normalizedExpected = normalizeOutput(expectedOutput);
+    const normalizedActual = normalizeOutput(execution.stdout);
+    const hasRuntimeFailure = Boolean(execution.error) || Boolean(execution.stderr);
+    const passed = !hasRuntimeFailure && normalizedActual === normalizedExpected;
+
+    const caseResult = {
+      caseNumber,
+      passed,
+      status: passed ? "Passed" : "Failed",
+      executionTime,
+      error: execution.error || "",
+      stderr: execution.stderr || "",
+      stdout: execution.stdout || "",
+      expectedOutput,
+      actualOutput: execution.stdout || "",
+    };
+    caseResults.push(caseResult);
+
+    if (!passed) {
+      const failureMessage = execution.error
+        ? `Test Case #${caseNumber} failed: ${execution.error}`
+        : execution.stderr
+          ? `Test Case #${caseNumber} failed: Runtime error.`
+          : `Test Case #${caseNumber} failed: Wrong answer.`;
+
+      return {
+        stdout: execution.stdout || "",
+        stderr: execution.stderr || "",
+        error: failureMessage,
+        executionTime: totalExecutionTime,
+        evaluation: {
+          totalCases: testCases.length,
+          passedCases,
+          allPassed: false,
+          failedCaseNumber: caseNumber,
+          cases: caseResults,
+        },
+      };
+    }
+
+    passedCases += 1;
+  }
+
+  return {
+    stdout: `All test cases passed (${passedCases}/${testCases.length}).`,
+    stderr: "",
+    error: "",
+    executionTime: totalExecutionTime,
+    evaluation: {
+      totalCases: testCases.length,
+      passedCases,
+      allPassed: true,
+      failedCaseNumber: null,
+      cases: caseResults,
+    },
+  };
+}
+
 /* ================= WORKER LOOP ================= */
 
 async function start() {
@@ -269,18 +389,16 @@ async function start() {
         log(`Student: ${payload.studentId}`);
         log(`Exam: ${payload.examId}`);
         log(`Language: ${payload.language}`);
+        log(`Submission Type: ${payload.submissionType || "unknown"}`);
+        log(`Test Case Count: ${Array.isArray(payload.testCases) ? payload.testCases.length : 0}`);
         log("=====================================");
 
         log("Submitted Code:");
         log(payload.code);
         log("=====================================");
 
-        const startTime = Date.now();
-
-        const executionResult = await runCode(payload);
-
-        const endTime = Date.now();
-        const executionTime = endTime - startTime;
+        const executionResult = await evaluateSubmission(payload);
+        const executionTime = executionResult.executionTime;
 
         log("Execution Output:");
         log("STDOUT:");
@@ -302,6 +420,7 @@ async function start() {
           stdout: executionResult.stdout,
           stderr: executionResult.stderr,
           error: executionResult.error,
+          evaluation: executionResult.evaluation,
           executionTime,
           timestamp: new Date(),
         });

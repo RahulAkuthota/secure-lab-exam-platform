@@ -5,6 +5,8 @@ const KEYS = {
   submission: "student_submission",
   questions: "student_questions",
   examSession: "student_exam_session",
+  privateResultJob: "student_private_result_job",
+  answerDrafts: "student_answer_drafts",
 };
 
 export const studentStorage = {

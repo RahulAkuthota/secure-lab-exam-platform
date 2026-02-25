@@ -27,7 +27,10 @@ services:
       - backend
 
   student-frontend:
-    build: ./student-frontend
+    build:
+      context: ./student-frontend
+      args:
+        VITE_APP_ENV: dev
     container_name: lab_exam_student_frontend
     ports:
       - "4174:80"

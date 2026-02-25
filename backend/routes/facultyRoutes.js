@@ -7,6 +7,7 @@ import {
   updateExamDetails,
   getQuestionPaper,
   getMyExams,
+  getExamResults,
 } from "../controllers/facultyController.js";
 import { requireAuth, requireFaculty } from "../middlewares/authMiddleware.js";
 
@@ -20,6 +21,7 @@ router.post("/update-exam-details", updateExamDetails);
 router.post("/create-question-paper", createQuestionPaper);
 router.get("/my-exams", getMyExams);
 router.get("/question-paper/:examId", getQuestionPaper);
+router.get("/exams/:examId/results", getExamResults);
 router.post("/activate-exam", activateExam);
 router.post("/deactivate-exam", deactivateExam);
 

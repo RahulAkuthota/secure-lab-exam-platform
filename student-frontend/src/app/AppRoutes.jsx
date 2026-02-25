@@ -4,6 +4,7 @@ import StudentEntryPage from "../pages/StudentEntryPage";
 import ActiveExamsPage from "../pages/ActiveExamsPage";
 import ExamPage from "../pages/ExamPage";
 import SummaryPage from "../pages/SummaryPage";
+import PrivateResultsPage from "../pages/PrivateResultsPage";
 
 function ProtectedRoute({ children }) {
   const token = studentStorage.get(studentStorage.keys.token);
@@ -36,6 +37,14 @@ function AppRoutes({ pushToast }) {
         element={
           <ProtectedRoute>
             <SummaryPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/private-results"
+        element={
+          <ProtectedRoute>
+            <PrivateResultsPage />
           </ProtectedRoute>
         }
       />

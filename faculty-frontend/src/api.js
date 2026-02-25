@@ -34,6 +34,16 @@ export const facultyApi = {
       headers: { Authorization: `Bearer ${token}` },
     });
   },
+  getExamResults(token, examId, submissionType = "private") {
+    return request(
+      `/faculty/exams/${encodeURIComponent(examId)}/results?submissionType=${encodeURIComponent(
+        submissionType
+      )}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+  },
   createExam(token, payload) {
     return request("/faculty/create-exam", {
       method: "POST",

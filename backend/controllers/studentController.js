@@ -11,6 +11,30 @@ const PUBLIC_RESULT_POLL_MS = Number(process.env.PUBLIC_RESULT_POLL_MS || 300);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const formatEvaluationForStudent = (resultDoc) => {
+  const evaluation = resultDoc?.evaluation || null;
+  if (!evaluation) return null;
+
+  if (resultDoc?.submissionType !== "private") {
+    return evaluation;
+  }
+
+  return {
+    totalCases: evaluation.totalCases || 0,
+    passedCases: evaluation.passedCases || 0,
+    allPassed: Boolean(evaluation.allPassed),
+    failedCaseNumber: evaluation.failedCaseNumber || null,
+    cases: Array.isArray(evaluation.cases)
+      ? evaluation.cases.map((testCase) => ({
+          caseNumber: testCase.caseNumber,
+          passed: Boolean(testCase.passed),
+          status: testCase.status,
+          executionTime: testCase.executionTime || 0,
+        }))
+      : [],
+  };
+};
+
 const validateExamIsOpen = async (examId) => {
   const now = new Date();
 
@@ -217,6 +241,19 @@ export const submitCode = asyncHandler(async (req, res) => {
     return res.status(403).json({ message: "Exam is not active right now." });
   }
 
+  const submissionRecord = await Submission.findOne({
+    examId: effectiveExamId,
+    studentId: req.user.sub,
+  })
+    .select("isSubmitted")
+    .lean();
+
+  if (submissionRecord?.isSubmitted) {
+    return res.status(409).json({
+      message: "Final exam submission is already completed. Further code submissions are blocked.",
+    });
+  }
+
   const examLanguages = Array.isArray(exam.allowedLanguages)
     ? exam.allowedLanguages
     : [];
@@ -238,6 +275,18 @@ export const submitCode = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Invalid questionIndex." });
   }
 
+  const selectedQuestion = questionPaper.questions[questionIndex];
+  const selectedTestCases =
+    submissionType === "public"
+      ? selectedQuestion?.publicTestCases
+      : selectedQuestion?.privateTestCases;
+
+  if (!Array.isArray(selectedTestCases) || selectedTestCases.length === 0) {
+    return res.status(400).json({
+      message: "No test cases are configured for the selected question.",
+    });
+  }
+
   const job = {
     jobId: randomUUID(),
     studentId: req.user.sub,
@@ -247,6 +296,10 @@ export const submitCode = asyncHandler(async (req, res) => {
     language: language.trim().toLowerCase(),
     code,
     submissionType,
+    testCases: selectedTestCases.map((testCase) => ({
+      input: testCase.input || "",
+      expectedOutput: testCase.expectedOutput || "",
+    })),
     queuedAt: new Date().toISOString(),
   };
 
@@ -289,6 +342,7 @@ export const submitCode = asyncHandler(async (req, res) => {
       stderr: resultDoc.stderr || "",
       error: resultDoc.error || "",
       executionTime: resultDoc.executionTime || 0,
+      evaluation: formatEvaluationForStudent(resultDoc),
     },
   });
 });
@@ -330,6 +384,7 @@ export const getSubmissionResult = asyncHandler(async (req, res) => {
       stderr: resultDoc.stderr || "",
       error: resultDoc.error || "",
       executionTime: resultDoc.executionTime || 0,
+      evaluation: formatEvaluationForStudent(resultDoc),
     },
   });
 });

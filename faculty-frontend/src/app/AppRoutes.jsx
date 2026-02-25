@@ -7,6 +7,7 @@ import CreateExamPage from "../pages/CreateExamPage";
 import ManageExamsPage from "../pages/ManageExamsPage";
 import QuestionEditorPage from "../pages/QuestionEditorPage";
 import EditExamPage from "../pages/EditExamPage";
+import ResultsPage from "../pages/ResultsPage";
 
 function ProtectedRoute({ children }) {
   const token = facultyStorage.get(facultyStorage.keys.facultyToken);
@@ -66,6 +67,14 @@ function AppRoutes({ pushToast }) {
         element={
           <ProtectedRoute>
             <EditExamPage pushToast={pushToast} />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/results"
+        element={
+          <ProtectedRoute>
+            <ResultsPage pushToast={pushToast} />
           </ProtectedRoute>
         }
       />

@@ -3,6 +3,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+ARG VITE_APP_ENV=prod
+ENV VITE_APP_ENV=${VITE_APP_ENV}
+
 COPY package*.json ./
 RUN npm install
 
