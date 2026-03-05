@@ -42,6 +42,13 @@ const submissionSchema = new mongoose.Schema({
     default: false,
     index: true,
   },
+  violations: [
+    {
+      reason: { type: String, required: true },
+      timestamp: { type: Date, default: Date.now },
+      ip: { type: String },
+    },
+  ],
 });
 
 // One submission record per student per exam.

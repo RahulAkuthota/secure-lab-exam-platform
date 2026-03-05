@@ -73,6 +73,35 @@ function StudentEntryPage({ pushToast }) {
       subtitle="Enter your details to start a secure exam session."
     >
       <section className="card narrow">
+        <div className="secure-init-box" style={{ marginBottom: "20px", padding: "15px", border: "2px solid var(--accent)", borderRadius: "10px", background: "rgba(var(--accent-rgb), 0.05)" }}>
+          <h3 style={{ margin: "0 0 10px 0" }}>Lab One-Click Setup</h3>
+          <p className="meta" style={{ marginBottom: "15px" }}>
+            Click below to remotely initialize the secure browser on your laptop.
+            This will automatically launch the exam environment in fullscreen.
+          </p>
+          <button
+            className="primary-btn"
+            style={{ width: "100%", background: "var(--accent)", color: "white" }}
+            onClick={async () => {
+              setLoading(true);
+              try {
+                // We need a dummy token if not logged in, or the backend should allow it
+                // For "Magic Launch", the backend controller I wrote doesn't require studentAuth 
+                // in the middleware? Let's check studentRoutes.
+                const res = await studentApi.remoteInitialize("");
+                pushToast("success", res.message);
+              } catch (err) {
+                pushToast("error", "Remote initialization failed. Please try again.");
+              } finally {
+                setLoading(false);
+              }
+            }}
+            disabled={loading}
+          >
+            {loading ? "Initializing..." : "🚀 Initialize Secure Exam Environment"}
+          </button>
+        </div>
+
         <h2>Enter Exam Session</h2>
         <form className="form-grid" onSubmit={onSubmit}>
           <label>

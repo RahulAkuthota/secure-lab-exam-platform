@@ -49,6 +49,19 @@ const examSchema = new mongoose.Schema(
       default: "NotComputed",
       index: true,
     },
+    maxViolations: {
+      type: Number,
+      default: 5,
+    },
+    securityLevel: {
+      type: String,
+      enum: ["Low", "Medium", "High"],
+      default: "Medium",
+    },
+    autoSubmitOnViolation: {
+      type: Boolean,
+      default: true,
+    },
   },
   { timestamps: { createdAt: true, updatedAt: false } }
 );

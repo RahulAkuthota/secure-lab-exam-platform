@@ -17,6 +17,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - ./backend/scripts:/app/scripts
+      - ./bin:/app/bin
 
   faculty-frontend:
     build: ./faculty-frontend
@@ -61,23 +64,23 @@ services:
   executor-c:
     build: ./executor-c
     image: executor-c
-    profiles: ["executors"]
+    profiles: [ "executors" ]
 
   executor-cpp:
     build: ./executor-cpp
     image: executor-cpp
-    profiles: ["executors"]
+    profiles: [ "executors" ]
 
   executor-java:
     build: ./executor-java
     image: executor-java
-    profiles: ["executors"]
+    profiles: [ "executors" ]
 
   mongo:
     image: mongo:7
     container_name: lab_exam_mongo
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      test: [ "CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -90,10 +93,10 @@ services:
   redis:
     image: redis:8
     container_name: lab_exam_redis
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    command: [ "redis-server", "--appendonly", "yes", "--appendfsync", "everysec" ]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 3s
       retries: 10

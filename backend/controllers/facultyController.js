@@ -666,7 +666,7 @@ export const getAggregatedExamResults = asyncHandler(async (req, res) => {
 
   const [students, submissions] = await Promise.all([
     Student.find({ _id: { $in: validStudentObjectIds } }).select("_id name rollNumber").lean(),
-    Submission.find({ examId, studentId: { $in: validStudentObjectIds } }).select("studentId isSubmitted submittedAt").lean(),
+    Submission.find({ examId, studentId: { $in: validStudentObjectIds } }).select("studentId isSubmitted submittedAt violations").lean(),
   ]);
 
   const studentMap = new Map(students.map((s) => [s._id.toString(), s]));
@@ -712,6 +712,7 @@ export const getAggregatedExamResults = asyncHandler(async (req, res) => {
       scorePercent: totalPossible > 0 ? Math.round((totalPassed / totalPossible) * 100) : 0,
       isFinalSubmitted: Boolean(submission?.isSubmitted),
       submittedAt: submission?.submittedAt || null,
+      violationCount: submission?.violations?.length || 0,
     };
   });
 

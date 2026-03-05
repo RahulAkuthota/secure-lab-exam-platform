@@ -9,6 +9,7 @@ import studentRoutes from "./routes/studentRoutes.js";
 import { errorHandler } from "./middlewares/errorMiddleware.js";
 
 const app = express();
+app.set("trust proxy", true);
 app.use(
   cors({
     origin: true,

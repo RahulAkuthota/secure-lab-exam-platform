@@ -415,6 +415,7 @@ function ResultsPage({ pushToast }) {
                       ))}
                       <th>Total Score</th>
                       <th>Exam Status</th>
+                      <th>Violations</th>
                       <th>Final Submission At</th>
                     </tr>
                   </thead>
@@ -435,6 +436,11 @@ function ResultsPage({ pushToast }) {
                         <td>
                           <span className={`chip ${row.isFinalSubmitted ? "active" : "inactive"}`}>
                             {row.isFinalSubmitted ? "Submitted" : "Pending"}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`chip ${row.violationCount > 0 ? "inactive" : ""}`}>
+                            {row.violationCount}
                           </span>
                         </td>
                         <td>{row.submittedAt ? new Date(row.submittedAt).toLocaleString() : "-"}</td>

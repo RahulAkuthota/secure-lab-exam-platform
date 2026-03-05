@@ -26,11 +26,11 @@ const formatEvaluationForStudent = (resultDoc) => {
     failedCaseNumber: evaluation.failedCaseNumber || null,
     cases: Array.isArray(evaluation.cases)
       ? evaluation.cases.map((testCase) => ({
-          caseNumber: testCase.caseNumber,
-          passed: Boolean(testCase.passed),
-          status: testCase.status,
-          executionTime: testCase.executionTime || 0,
-        }))
+        caseNumber: testCase.caseNumber,
+        passed: Boolean(testCase.passed),
+        status: testCase.status,
+        executionTime: testCase.executionTime || 0,
+      }))
       : [],
   };
 };
@@ -345,6 +345,136 @@ export const submitCode = asyncHandler(async (req, res) => {
       evaluation: formatEvaluationForStudent(resultDoc),
     },
   });
+});
+
+import { exec } from "child_process";
+import { promisify } from "util";
+
+const execAsync = promisify(exec);
+
+export const logViolation = asyncHandler(async (req, res) => {
+  const { examId, reason } = req.body;
+  const studentId = req.user.sub;
+  const clientIp = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+
+  if (!examId || !reason) {
+    return res.status(400).json({ message: "examId and reason are required." });
+  }
+
+  const exam = await Exam.findById(examId);
+  if (!exam) {
+    return res.status(404).json({ message: "Exam not found." });
+  }
+
+  let submission = await Submission.findOne({ examId, studentId });
+
+  if (!submission) {
+    submission = await Submission.create({
+      examId,
+      studentId,
+      isSubmitted: false,
+      answers: [],
+      violations: [],
+    });
+  }
+
+  if (submission.isSubmitted) {
+    return res.status(409).json({ message: "Exam already submitted." });
+  }
+
+  submission.violations.push({
+    reason,
+    timestamp: new Date(),
+    ip: clientIp,
+  });
+
+  const violationCount = submission.violations.length;
+
+  if (exam.autoSubmitOnViolation && violationCount >= exam.maxViolations) {
+    submission.isSubmitted = true;
+    submission.submittedAt = new Date();
+  }
+
+  await submission.save();
+
+  res.status(200).json({
+    message: "Violation logged.",
+    violationCount,
+    isSubmitted: submission.isSubmitted,
+    maxViolations: exam.maxViolations,
+  });
+});
+
+export const remoteInitialize = asyncHandler(async (req, res) => {
+  // Respect X-Forwarded-For if present, otherwise use req.ip
+  let studentIp = req.headers["x-forwarded-for"] || req.ip || req.socket.remoteAddress;
+
+  // If X-Forwarded-For is a list, take the first one
+  if (typeof studentIp === "string" && studentIp.includes(",")) {
+    studentIp = studentIp.split(",")[0].trim();
+  }
+
+  // Strip IPv6 prefix if present (e.g., ::ffff:192.168.1.1)
+  const cleanIp = studentIp.includes(":") ? studentIp.split(":").pop() : studentIp;
+
+  const labUser = process.env.LAB_USER || "user";
+  const labPass = process.env.LAB_PASS || "rahul7075";
+  const localAppPath = process.env.LOCAL_APP_PATH || "/app/bin/secure-exam-browser.AppImage";
+  const remoteAppPath = process.env.REMOTE_APP_PATH || "/tmp/secure-exam-browser.AppImage";
+
+  console.log(`[RemoteLaunch] Request from ${studentIp} (Detected as: ${cleanIp})`);
+
+  try {
+    const checkFileCmd = `sshpass -p "${labPass}" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 ${labUser}@${cleanIp} "[ -f ${remoteAppPath} ]"`;
+
+    console.log(`[RemoteLaunch] Checking if app exists on ${cleanIp}...`);
+
+    exec(checkFileCmd, (checkError) => {
+      const launchRemote = () => {
+        // Extract the server's URL from the request origin so the AppImage knows where to point
+        const serverUrl = req.headers.origin || "http://192.168.40.131:4174";
+        // We explicitly set XAUTHORITY so the SSH process has permission to open windows on the student's desktop
+        const launchCmd = `sshpass -p "${labPass}" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 ${labUser}@${cleanIp} "export XAUTHORITY=/home/${labUser}/.Xauthority && chmod +x ${remoteAppPath} && DISPLAY=:0 ${remoteAppPath} --no-sandbox --disable-gpu ${serverUrl} &"`;
+        console.log(`[RemoteLaunch] Launching: ${launchCmd}`);
+        exec(launchCmd, (launchErr, stdout, stderr) => {
+          if (launchErr) {
+            console.error(`[RemoteLaunch] Launch FAILED for ${cleanIp}:`, launchErr.message);
+            if (stderr) console.error(`[RemoteLaunch] Stderr: ${stderr}`);
+          } else {
+            console.log(`[RemoteLaunch] Launch SUCCESS for ${cleanIp}`);
+          }
+        });
+      };
+
+      if (checkError) {
+        // File does not exist, push it
+        console.log(`[RemoteLaunch] App missing on ${cleanIp}. Pushing (SCP)...`);
+        const scpCmd = `sshpass -p "${labPass}" scp -o StrictHostKeyChecking=no ${localAppPath} ${labUser}@${cleanIp}:${remoteAppPath}`;
+        console.log(`[RemoteLaunch] Executing SCP: ${scpCmd}`);
+
+        exec(scpCmd, (scpErr) => {
+          if (scpErr) {
+            console.error(`[RemoteLaunch] SCP FAILED for ${cleanIp}:`, scpErr.message);
+          } else {
+            console.log(`[RemoteLaunch] SCP SUCCESS for ${cleanIp}. Now launching...`);
+            launchRemote();
+          }
+        });
+      } else {
+        // File exists, just launch
+        console.log(`[RemoteLaunch] App found on ${cleanIp}. Launching directly.`);
+        launchRemote();
+      }
+    });
+
+    res.status(200).json({
+      message: `Initialization signal sent to ${cleanIp}.`,
+      ip: cleanIp
+    });
+  } catch (err) {
+    console.error(`[RemoteLaunch] Unexpected error:`, err);
+    res.status(500).json({ message: "Failed to trigger remote initialization." });
+  }
 });
 
 export const getSubmissionResult = asyncHandler(async (req, res) => {

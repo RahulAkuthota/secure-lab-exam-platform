@@ -68,4 +68,22 @@ export const studentApi = {
       },
     });
   },
+  logViolation(token, payload) {
+    return request("/student/violation", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+  },
+  remoteInitialize(token) {
+    return request("/student/remote-initialize", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
 };

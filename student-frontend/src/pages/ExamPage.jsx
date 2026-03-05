@@ -79,6 +79,7 @@ function ExamPage({ pushToast }) {
   const [secureReady, setSecureReady] = useState(false);
   const [fullscreenLocked, setFullscreenLocked] = useState(false);
   const [violations, setViolations] = useState(0);
+  const [isDisqualified, setIsDisqualified] = useState(false);
   const [layoutMode, setLayoutMode] = useState("split");
   const [splitRatio, setSplitRatio] = useState(48);
   const [executionState, setExecutionState] = useState({});
@@ -87,6 +88,13 @@ function ExamPage({ pushToast }) {
   const autoSubmittedRef = useRef(false);
   const violationThrottleRef = useRef(0);
   const splitGridRef = useRef(null);
+
+  const isElectron = useMemo(() => {
+    return window.navigator.userAgent.includes("Electron");
+  }, []);
+
+  const maxAllowedViolations = exam?.maxViolations || 5;
+
   const remainingSeconds = useCountdown(examSession?.expiresAt);
   const allowedLanguages =
     Array.isArray(exam?.allowedLanguages) && exam.allowedLanguages.length
@@ -124,17 +132,40 @@ function ExamPage({ pushToast }) {
     }
   };
 
-  const registerViolation = useCallback((reason) => {
-    const now = Date.now();
-    if (now - violationThrottleRef.current < 800) return;
-    violationThrottleRef.current = now;
+  const registerViolation = useCallback(
+    async (reason) => {
+      const now = Date.now();
+      if (now - violationThrottleRef.current < 800) return;
+      violationThrottleRef.current = now;
 
-    setViolations((prev) => {
-      const next = prev + 1;
-      pushToast("error", `${reason}. Restricted action blocked.`);
-      return next;
-    });
-  }, [pushToast]);
+      try {
+        const res = await studentApi.logViolation(token, {
+          examId: exam.id,
+          reason,
+        });
+
+        setViolations(res.violationCount);
+        pushToast("error", `${reason}. Restricted action blocked.`);
+
+        if (res.isSubmitted) {
+          setIsDisqualified(true);
+          pushToast("error", "Maximum violations reached. Exam has been auto-submitted.");
+        }
+      } catch (err) {
+        console.error("Failed to log violation:", err);
+        // Fallback to local increment if API fails
+        setViolations((prev) => {
+          const next = prev + 1;
+          pushToast("error", `${reason}. Blocked.`);
+          if (next >= maxAllowedViolations) {
+            setIsDisqualified(true);
+          }
+          return next;
+        });
+      }
+    },
+    [pushToast, token, exam.id, maxAllowedViolations]
+  );
 
   const isCodeEditorTarget = useCallback((target) => {
     if (!(target instanceof HTMLElement)) return false;
@@ -402,11 +433,20 @@ function ExamPage({ pushToast }) {
     const ok = await requestExamFullscreen();
     if (ok) {
       setSecureReady(true);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText("").catch(() => { });
+      }
       pushToast("success", "Secure exam mode is active");
     } else {
       pushToast("error", "Fullscreen permission denied. Allow fullscreen and retry.");
     }
   };
+
+  useEffect(() => {
+    if (isElectron && !secureReady) {
+      enterSecureMode();
+    }
+  }, [isElectron, secureReady]);
 
   async function runPublicTests() {
     if (!activeAnswer.code?.trim()) {
@@ -643,7 +683,21 @@ function ExamPage({ pushToast }) {
               </button>
             </section>
           ) : null}
-          {!fullscreenLocked ? (
+          {isDisqualified ? (
+            <div className="secure-overlay disqualified-overlay" style={{ background: "rgba(220, 38, 38, 0.95)", color: "white", zIndex: 9999 }}>
+              <div className="overlay-content" style={{ textAlign: "center", padding: "40px", borderRadius: "20px", background: "#111" }}>
+                <h1 style={{ fontSize: "3rem", marginBottom: "20px" }}>DISQUALIFIED</h1>
+                <p style={{ fontSize: "1.2rem", marginBottom: "30px" }}>
+                  Maximum violation limit reached ({violations}/{maxAllowedViolations}).
+                  Your exam has been automatically submitted and your session is locked.
+                </p>
+                <button className="primary-btn" onClick={() => navigate("/summary")}>
+                  Go to Summary
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {!fullscreenLocked && !isDisqualified ? (
             <section className="leetcode-shell">
               <div className="section-head">
                 <h2>Coding Assessment</h2>
