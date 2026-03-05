@@ -24,6 +24,13 @@ export const facultyApi = {
       body: JSON.stringify(payload),
     });
   },
+  adminLogin(payload) {
+    return request("/auth/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  },
   getExams(token) {
     return request("/faculty/my-exams", {
       headers: { Authorization: `Bearer ${token}` },
@@ -39,6 +46,16 @@ export const facultyApi = {
       `/faculty/exams/${encodeURIComponent(examId)}/results?submissionType=${encodeURIComponent(
         submissionType
       )}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+  },
+  getAggregatedExamResults(token, examId, submissionType = "private") {
+    return request(
+      `/faculty/exams/${encodeURIComponent(
+        examId
+      )}/aggregated-results?submissionType=${encodeURIComponent(submissionType)}`,
       {
         headers: { Authorization: `Bearer ${token}` },
       }
@@ -102,6 +119,33 @@ export const facultyApi = {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ examId }),
+    });
+  },
+  finalizeResults(token, examId) {
+    return request(`/faculty/exams/${examId}/finalize-results`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  },
+  getFinalResults(token, examId) {
+    return request(`/faculty/exams/${examId}/final-results`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  },
+  publishResults(token, examId) {
+    return request(`/faculty/exams/${examId}/publish-results`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  },
+  overrideScore(token, payload) {
+    return request("/faculty/results/override", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
     });
   },
   addFaculty(token, payload) {

@@ -19,6 +19,18 @@ export const signFacultyToken = (faculty) => {
   );
 };
 
+export const signSuperAdminToken = (superAdmin) => {
+  return jwt.sign(
+    {
+      sub: superAdmin._id.toString(),
+      role: "super_admin",
+      email: superAdmin.email,
+    },
+    getJwtSecret(),
+    { expiresIn: "12h" }
+  );
+};
+
 export const signStudentExamToken = ({ studentId, examId, rollNumber }) => {
   return jwt.sign(
     {

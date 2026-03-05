@@ -43,6 +43,12 @@ const examSchema = new mongoose.Schema(
         message: "allowedLanguages contains unsupported language.",
       },
     },
+    resultsStatus: {
+      type: String,
+      enum: ["NotComputed", "Preliminary", "Finalized", "Published"],
+      default: "NotComputed",
+      index: true,
+    },
   },
   { timestamps: { createdAt: true, updatedAt: false } }
 );

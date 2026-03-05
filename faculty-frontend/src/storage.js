@@ -7,7 +7,13 @@ export const facultyStorage = {
   keys: KEYS,
   get(key) {
     const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      console.error(`Error parsing storage key ${key}:`, e);
+      return null;
+    }
   },
   set(key, value) {
     localStorage.setItem(key, JSON.stringify(value));

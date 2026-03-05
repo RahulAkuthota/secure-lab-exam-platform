@@ -1,9 +1,47 @@
 import bcrypt from "bcrypt";
 import { Faculty } from "../models/Faculty.js";
+import { SuperAdmin } from "../models/SuperAdmin.js";
 import { Student } from "../models/Student.js";
 import { Exam } from "../models/Exam.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { signFacultyToken, signStudentExamToken } from "../utils/token.js";
+import {
+  signFacultyToken,
+  signStudentExamToken,
+  signSuperAdminToken,
+} from "../utils/token.js";
+
+export const superAdminLogin = asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ message: "Email and password are required." });
+  }
+
+  const superAdmin = await SuperAdmin.findOne({
+    email: email.toLowerCase().trim(),
+  });
+  if (!superAdmin) {
+    return res.status(401).json({ message: "Invalid email or password." });
+  }
+
+  const isPasswordValid = await bcrypt.compare(password, superAdmin.password);
+  if (!isPasswordValid) {
+    return res.status(401).json({ message: "Invalid email or password." });
+  }
+
+  const token = signSuperAdminToken(superAdmin);
+
+  res.status(200).json({
+    message: "Super admin login successful.",
+    token,
+    superAdmin: {
+      id: superAdmin._id,
+      name: superAdmin.name,
+      email: superAdmin.email,
+      role: superAdmin.role,
+    },
+  });
+});
 
 export const facultyLogin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;

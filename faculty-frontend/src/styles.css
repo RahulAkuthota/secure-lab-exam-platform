@@ -409,6 +409,20 @@ button:disabled {
   color: #4f627b;
 }
 
+.chip.warning {
+  background: #fff5e8;
+  color: #9f6200;
+}
+
+.action-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
 .empty {
   border: 1px dashed #c7d4e6;
   border-radius: 12px;

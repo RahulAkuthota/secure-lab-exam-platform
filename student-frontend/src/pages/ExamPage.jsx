@@ -514,24 +514,70 @@ function ExamPage({ pushToast }) {
         code: activeAnswer.code,
         submissionType: "private",
       });
+
+      setActiveTab("submissions");
+
       setExecutionState((prev) => ({
         ...prev,
         [activeQuestionIndex]: {
           ...prev[activeQuestionIndex],
           privateChecked: true,
           privateCheckedAt: new Date().toISOString(),
+          privatePending: true,
           privateJobId: response.jobId,
+          privateError: "",
+          privateEvaluation: null,
+          privateExecutionTime: 0,
         },
       }));
-      studentStorage.set(studentStorage.keys.privateResultJob, {
-        jobId: response.jobId,
-        questionIndex: activeQuestionIndex,
-        queuedAt: new Date().toISOString(),
-      });
-      pushToast("success", `Queued private check for Q${activeQuestionIndex + 1}`);
-      navigate("/private-results");
+
+      // Start Polling logic
+      const maxAttempts = 50;
+      const intervalMs = 1500;
+      let resolved = false;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        await sleep(intervalMs);
+        const polled = await studentApi.getSubmitCodeResult(
+          token,
+          exam.id,
+          response.jobId
+        );
+
+        if (!polled.pending) {
+          setExecutionState((prev) => ({
+            ...prev,
+            [activeQuestionIndex]: {
+              ...prev[activeQuestionIndex],
+              privatePending: false,
+              privateEvaluation: polled.result?.evaluation || null,
+              privateError: polled.result?.error || "",
+              privateExecutionTime: polled.result?.executionTime || 0,
+              privateStdout: polled.result?.stdout || "",
+              privateStderr: polled.result?.stderr || "",
+            },
+          }));
+          resolved = true;
+          break;
+        }
+      }
+
+      if (resolved) {
+        pushToast("success", `Private check completed for Q${activeQuestionIndex + 1}`);
+      } else {
+        pushToast("warning", `Private check is taking longer than expected. Status will update in Submissions tab.`);
+      }
+
     } catch (apiError) {
       pushToast("error", apiError.message);
+      setExecutionState((prev) => ({
+        ...prev,
+        [activeQuestionIndex]: {
+          ...prev[activeQuestionIndex],
+          privatePending: false,
+          privateError: apiError.message,
+        },
+      }));
     } finally {
       setSubmittingCode(false);
     }
@@ -586,239 +632,327 @@ function ExamPage({ pushToast }) {
 
       {secureReady ? (
         <>
-        {fullscreenLocked ? (
-          <section className="card secure-overlay full-lock">
-            <h2>Return To Fullscreen</h2>
-            <p className="meta">
-              Exam is locked until fullscreen is active again.
-            </p>
-            <button className="primary-btn" onClick={requestExamFullscreen}>
-              Re-enter Fullscreen
-            </button>
-          </section>
-        ) : null}
-        {!fullscreenLocked ? (
-        <section className="leetcode-shell">
-        <div className="section-head">
-          <h2>Coding Assessment</h2>
-          <div className="exam-header-actions">
-            <span className="chip">
-              Answered {answeredCount}/{questions.length}
-            </span>
-            <div className="layout-switch">
-              <button
-                className={`tab-btn ${layoutMode === "split" ? "active" : ""}`}
-                onClick={() => setLayoutMode("split")}
-              >
-                Split
-              </button>
-              <button
-                className={`tab-btn ${layoutMode === "question" ? "active" : ""}`}
-                onClick={() => setLayoutMode("question")}
-              >
-                Question Full
-              </button>
-              <button
-                className={`tab-btn ${layoutMode === "editor" ? "active" : ""}`}
-                onClick={() => setLayoutMode("editor")}
-              >
-                Editor Full
-              </button>
-            </div>
-          </div>
-        </div>
-        <div
-          ref={splitGridRef}
-          className={`leetcode-grid mode-${layoutMode}`}
-          style={{ "--split-ratio": `${splitRatio}%` }}
-        >
-          <div className="problem-panel">
-            <div className="question-nav-row">
-              {questions.map((_, index) => (
-                <button
-                  key={`nav-${index}`}
-                  className={`question-pill ${index === activeQuestionIndex ? "active" : ""}`}
-                  onClick={() => setActiveQuestionIndex(index)}
-                >
-                  Q{index + 1}
-                </button>
-              ))}
-            </div>
-
-            <div className="tab-row">
-              <button
-                className={`tab-btn ${activeTab === "description" ? "active" : ""}`}
-                onClick={() => setActiveTab("description")}
-              >
-                Description
-              </button>
-              <button
-                className={`tab-btn ${activeTab === "examples" ? "active" : ""}`}
-                onClick={() => setActiveTab("examples")}
-              >
-                Public Testcases
-              </button>
-            </div>
-
-            <article className="problem-card">
-              <p className="q-title">
-                Q{activeQuestionIndex + 1}. {activeQuestion?.title || activeQuestion?.questionText}
+          {fullscreenLocked ? (
+            <section className="card secure-overlay full-lock">
+              <h2>Return To Fullscreen</h2>
+              <p className="meta">
+                Exam is locked until fullscreen is active again.
               </p>
-              {activeTab === "description" ? (
-                <p className="problem-desc">{activeQuestion?.description || "No description available."}</p>
-              ) : (
-                <div className="public-tests">
-                  {Array.isArray(activeQuestion?.publicTestCases) &&
-                  activeQuestion.publicTestCases.length > 0 ? (
-                    activeQuestion.publicTestCases.map((testCase, caseIndex) => (
-                      <div
-                        key={`public-${activeQuestionIndex}-${caseIndex}`}
-                        className="public-test-item"
-                      >
-                        <p>
-                          <strong>Input:</strong> {testCase.input}
-                        </p>
-                        <p>
-                          <strong>Expected:</strong> {testCase.expectedOutput}
-                        </p>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="meta">No public test cases available.</p>
-                  )}
-                </div>
-              )}
-            </article>
-          </div>
-
-          {layoutMode === "split" ? (
-            <button
-              className="panel-resizer"
-              type="button"
-              aria-label="Resize question and editor panels"
-              onMouseDown={() => {
-                const grid = splitGridRef.current;
-                if (grid) {
-                  grid.dataset.resizing = "true";
-                  document.body.classList.add("resizing-panels");
-                }
-              }}
-            />
+              <button className="primary-btn" onClick={requestExamFullscreen}>
+                Re-enter Fullscreen
+              </button>
+            </section>
           ) : null}
-          <div className="editor-panel">
-            <div className="editor-toolbar">
-              <div className="editor-heading">
-                <span>Code Editor</span>
-                <small>White Theme</small>
-              </div>
-              <select
-                className="language-select"
-                value={activeAnswer.language}
-                onChange={(event) => setAnswerLanguage(event.target.value)}
-              >
-                {allowedLanguages.map((language) => (
-                  <option key={language} value={language}>
-                    {language}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="code-editor">
-              <SecureMonacoEditor
-                language={activeAnswer.language}
-                value={activeAnswer.code}
-                onChange={setAnswerCode}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="action-row">
-          <button
-            className="ghost-btn"
-            disabled={runningPublic || submitting || submittingCode}
-            onClick={runPublicTests}
-            title="Shortcut: Ctrl/Cmd + '"
-          >
-            {runningPublic ? "Running..." : "Run Public Tests (Ctrl/Cmd + ')"}
-          </button>
-          <button
-            className="primary-btn"
-            disabled={submittingCode || submitting || runningPublic}
-            onClick={submitCodeForPrivateTests}
-            title="Shortcut: Ctrl/Cmd + Enter"
-          >
-            {submittingCode ? "Submitting..." : "Submit Code (Private Tests) (Ctrl/Cmd + Enter)"}
-          </button>
-          <button
-            className="ghost-btn"
-            disabled={submitting}
-            onClick={() => {
-              const ok = window.confirm("Submit final answers now?");
-              if (ok) submitExam(false);
-            }}
-          >
-            {submitting ? "Submitting..." : "Submit Exam"}
-          </button>
-        </div>
-        {activeExecution.publicChecked ? (
-          <section className="execution-result">
-            <div className="result-head">
-              <strong>Public Run Result</strong>
-              <span className="meta">
-                {activeExecution.publicPending
-                  ? `Queued (${activeExecution.publicJobId || "pending"})`
-                  : `Execution Time: ${activeExecution.publicExecutionTime || 0} ms`}
-              </span>
-            </div>
-            {activeExecution.publicError ? (
-              <p className="alert error">{activeExecution.publicError}</p>
-            ) : null}
-            {!activeExecution.publicPending ? (
-              <p
-                className={`alert ${
-                  activeExecution.publicEvaluation?.allPassed ? "success" : "error"
-                }`}
-              >
-                {buildPublicResultMessage(activeExecution)}
-              </p>
-            ) : null}
-            {Array.isArray(activeExecution.publicEvaluation?.cases) &&
-            activeExecution.publicEvaluation.cases.length > 0 ? (
-              <div className="case-status-list">
-                {activeExecution.publicEvaluation.cases.map((testCase) => (
-                  <div
-                    key={`public-case-${activeQuestionIndex}-${testCase.caseNumber}`}
-                    className={`case-status-item ${testCase.passed ? "pass" : "fail"}`}
-                  >
-                    <p>
-                      <strong>Test Case #{testCase.caseNumber}</strong> - {testCase.status}
-                    </p>
-                    <p className="meta">Execution Time: {testCase.executionTime || 0} ms</p>
-                    {!testCase.passed ? (
-                      <p className="meta">
-                        Expected: {testCase.expectedOutput || "(empty)"} | Received:{" "}
-                        {testCase.actualOutput || "(empty)"}
-                      </p>
-                    ) : null}
+          {!fullscreenLocked ? (
+            <section className="leetcode-shell">
+              <div className="section-head">
+                <h2>Coding Assessment</h2>
+                <div className="exam-header-actions">
+                  <span className="chip">
+                    Answered {answeredCount}/{questions.length}
+                  </span>
+                  <div className="layout-switch">
+                    <button
+                      className={`tab-btn ${layoutMode === "split" ? "active" : ""}`}
+                      onClick={() => setLayoutMode("split")}
+                    >
+                      Split
+                    </button>
+                    <button
+                      className={`tab-btn ${layoutMode === "question" ? "active" : ""}`}
+                      onClick={() => setLayoutMode("question")}
+                    >
+                      Question Full
+                    </button>
+                    <button
+                      className={`tab-btn ${layoutMode === "editor" ? "active" : ""}`}
+                      onClick={() => setLayoutMode("editor")}
+                    >
+                      Editor Full
+                    </button>
                   </div>
-                ))}
+                </div>
               </div>
-            ) : null}
-            <div className="result-grid">
-              <div className="result-block">
-                <p className="meta">stdout</p>
-                <pre>{activeExecution.publicStdout || "(empty)"}</pre>
+              <div
+                ref={splitGridRef}
+                className={`leetcode-grid mode-${layoutMode}`}
+                style={{ "--split-ratio": `${splitRatio}%` }}
+              >
+                <div className="problem-panel">
+                  <div className="question-nav-row">
+                    {questions.map((_, index) => (
+                      <button
+                        key={`nav-${index}`}
+                        className={`question-pill ${index === activeQuestionIndex ? "active" : ""}`}
+                        onClick={() => setActiveQuestionIndex(index)}
+                      >
+                        Q{index + 1}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="tab-row">
+                    <button
+                      className={`tab-btn ${activeTab === "description" ? "active" : ""}`}
+                      onClick={() => setActiveTab("description")}
+                    >
+                      Description
+                    </button>
+                    <button
+                      className={`tab-btn ${activeTab === "examples" ? "active" : ""}`}
+                      onClick={() => setActiveTab("examples")}
+                    >
+                      Public Testcases
+                    </button>
+                    <button
+                      className={`tab-btn ${activeTab === "submissions" ? "active" : ""}`}
+                      onClick={() => setActiveTab("submissions")}
+                    >
+                      Submissions
+                    </button>
+                  </div>
+
+                  <article className="problem-card">
+                    <p className="q-title">
+                      Q{activeQuestionIndex + 1}. {activeQuestion?.title || activeQuestion?.questionText}
+                    </p>
+                    {activeTab === "description" ? (
+                      <p className="problem-desc">{activeQuestion?.description || "No description available."}</p>
+                    ) : activeTab === "examples" ? (
+                      <div className="public-tests">
+                        {Array.isArray(activeQuestion?.publicTestCases) &&
+                          activeQuestion.publicTestCases.length > 0 ? (
+                          activeQuestion.publicTestCases.map((testCase, caseIndex) => (
+                            <div
+                              key={`public-${activeQuestionIndex}-${caseIndex}`}
+                              className="public-test-item"
+                            >
+                              <p>
+                                <strong>Input:</strong> {testCase.input}
+                              </p>
+                              <p>
+                                <strong>Expected:</strong> {testCase.expectedOutput}
+                              </p>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="meta">No public test cases available.</p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="private-results-tab">
+                        {!activeExecution.privateChecked ? (
+                          <p className="meta">No submissions made yet for this question.</p>
+                        ) : (
+                          <>
+                            {activeExecution.privatePending ? (
+                              <div className="private-result-loading">
+                                <h3>Evaluating Private Test Cases</h3>
+                                <p className="meta">Please wait while your submission is being graded.</p>
+                              </div>
+                            ) : (
+                              <div className="private-result-content">
+                                {activeExecution.privateError ? (
+                                  <p className="alert error">{activeExecution.privateError}</p>
+                                ) : (
+                                  <>
+                                    <div
+                                      className={`score-card ${activeExecution.privateEvaluation?.allPassed ? "pass" : "fail"
+                                        }`}
+                                      style={{ marginBottom: "12px" }}
+                                    >
+                                      <p className="score-label">Score</p>
+                                      <h2>
+                                        {activeExecution.privateEvaluation?.totalCases
+                                          ? Math.round(
+                                            (activeExecution.privateEvaluation.passedCases /
+                                              activeExecution.privateEvaluation.totalCases) *
+                                            100
+                                          )
+                                          : 0}
+                                        %
+                                      </h2>
+                                      <p className="meta">
+                                        {activeExecution.privateEvaluation?.passedCases || 0} /{" "}
+                                        {activeExecution.privateEvaluation?.totalCases || 0} test cases passed
+                                      </p>
+                                    </div>
+
+                                    <div
+                                      className="private-result-summary"
+                                      style={{ marginBottom: "12px", border: "1px solid var(--line)", padding: "10px", borderRadius: "10px" }}
+                                    >
+                                      <p>
+                                        <strong>Status:</strong>{" "}
+                                        {activeExecution.privateEvaluation?.allPassed ? "Passed" : "Not Passed"}
+                                      </p>
+                                      <p>
+                                        <strong>Execution Time:</strong> {activeExecution.privateExecutionTime || 0} ms
+                                      </p>
+                                      {!activeExecution.privateEvaluation?.allPassed &&
+                                        activeExecution.privateEvaluation?.failedCaseNumber ? (
+                                        <p>
+                                          <strong>First Failed Case:</strong> Test Case #
+                                          {activeExecution.privateEvaluation.failedCaseNumber}
+                                        </p>
+                                      ) : null}
+                                    </div>
+
+                                    {Array.isArray(activeExecution.privateEvaluation?.cases) &&
+                                      activeExecution.privateEvaluation.cases.length > 0 ? (
+                                      <div className="case-status-list">
+                                        {activeExecution.privateEvaluation.cases.map((testCase) => (
+                                          <div
+                                            key={`private-case-${testCase.caseNumber}`}
+                                            className={`case-status-item ${testCase.passed ? "pass" : "fail"}`}
+                                          >
+                                            <p>
+                                              <strong>Test Case #{testCase.caseNumber}</strong> -{" "}
+                                              {testCase.status}
+                                            </p>
+                                            <p className="meta">Execution Time: {testCase.executionTime || 0} ms</p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </article>
+                </div>
+
+                {layoutMode === "split" ? (
+                  <button
+                    className="panel-resizer"
+                    type="button"
+                    aria-label="Resize question and editor panels"
+                    onMouseDown={() => {
+                      const grid = splitGridRef.current;
+                      if (grid) {
+                        grid.dataset.resizing = "true";
+                        document.body.classList.add("resizing-panels");
+                      }
+                    }}
+                  />
+                ) : null}
+                <div className="editor-panel">
+                  <div className="editor-toolbar">
+                    <div className="editor-heading">
+                      <span>Code Editor</span>
+                      <small>White Theme</small>
+                    </div>
+                    <select
+                      className="language-select"
+                      value={activeAnswer.language}
+                      onChange={(event) => setAnswerLanguage(event.target.value)}
+                    >
+                      {allowedLanguages.map((language) => (
+                        <option key={language} value={language}>
+                          {language}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="code-editor">
+                    <SecureMonacoEditor
+                      language={activeAnswer.language}
+                      value={activeAnswer.code}
+                      onChange={setAnswerCode}
+                    />
+                  </div>
+                </div>
               </div>
-              <div className="result-block">
-                <p className="meta">stderr</p>
-                <pre>{activeExecution.publicStderr || "(empty)"}</pre>
+
+              <div className="action-row">
+                <button
+                  className="ghost-btn"
+                  disabled={runningPublic || submitting || submittingCode}
+                  onClick={runPublicTests}
+                  title="Shortcut: Ctrl/Cmd + '"
+                >
+                  {runningPublic ? "Running..." : "Run Public Tests (Ctrl/Cmd + ')"}
+                </button>
+                <button
+                  className="primary-btn"
+                  disabled={submittingCode || submitting || runningPublic}
+                  onClick={submitCodeForPrivateTests}
+                  title="Shortcut: Ctrl/Cmd + Enter"
+                >
+                  {submittingCode ? "Submitting..." : "Submit Code (Private Tests) (Ctrl/Cmd + Enter)"}
+                </button>
+                <button
+                  className="ghost-btn"
+                  disabled={submitting}
+                  onClick={() => {
+                    const ok = window.confirm("Submit final answers now?");
+                    if (ok) submitExam(false);
+                  }}
+                >
+                  {submitting ? "Submitting..." : "Submit Exam"}
+                </button>
               </div>
-            </div>
-          </section>
-        ) : null}
-        </section>
-        ) : null}
+              {activeExecution.publicChecked ? (
+                <section className="execution-result">
+                  <div className="result-head">
+                    <strong>Public Run Result</strong>
+                    <span className="meta">
+                      {activeExecution.publicPending
+                        ? `Queued (${activeExecution.publicJobId || "pending"})`
+                        : `Execution Time: ${activeExecution.publicExecutionTime || 0} ms`}
+                    </span>
+                  </div>
+                  {activeExecution.publicError ? (
+                    <p className="alert error">{activeExecution.publicError}</p>
+                  ) : null}
+                  {!activeExecution.publicPending ? (
+                    <p
+                      className={`alert ${activeExecution.publicEvaluation?.allPassed ? "success" : "error"
+                        }`}
+                    >
+                      {buildPublicResultMessage(activeExecution)}
+                    </p>
+                  ) : null}
+                  {Array.isArray(activeExecution.publicEvaluation?.cases) &&
+                    activeExecution.publicEvaluation.cases.length > 0 ? (
+                    <div className="case-status-list">
+                      {activeExecution.publicEvaluation.cases.map((testCase) => (
+                        <div
+                          key={`public-case-${activeQuestionIndex}-${testCase.caseNumber}`}
+                          className={`case-status-item ${testCase.passed ? "pass" : "fail"}`}
+                        >
+                          <p>
+                            <strong>Test Case #{testCase.caseNumber}</strong> - {testCase.status}
+                          </p>
+                          <p className="meta">Execution Time: {testCase.executionTime || 0} ms</p>
+                          {!testCase.passed ? (
+                            <p className="meta">
+                              Expected: {testCase.expectedOutput || "(empty)"} | Received:{" "}
+                              {testCase.actualOutput || "(empty)"}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="result-grid">
+                    <div className="result-block">
+                      <p className="meta">stdout</p>
+                      <pre>{activeExecution.publicStdout || "(empty)"}</pre>
+                    </div>
+                    <div className="result-block">
+                      <p className="meta">stderr</p>
+                      <pre>{activeExecution.publicStderr || "(empty)"}</pre>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+            </section>
+          ) : null}
         </>
       ) : null}
     </PageShell>
