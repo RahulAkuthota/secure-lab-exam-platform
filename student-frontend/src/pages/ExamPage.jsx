@@ -99,7 +99,7 @@ function ExamPage({ pushToast }) {
   const allowedLanguages =
     Array.isArray(exam?.allowedLanguages) && exam.allowedLanguages.length
       ? exam.allowedLanguages
-      : ["python", "java", "cpp", "javascript", "c"];
+      : ["c", "cpp", "java"];
   const answeredCount = useMemo(
     () => Object.values(answers).filter((item) => item?.code?.trim()).length,
     [answers]

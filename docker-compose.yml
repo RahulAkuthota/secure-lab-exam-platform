@@ -40,6 +40,13 @@ services:
     depends_on:
       - backend
 
+  executor-init:
+    build: ./worker
+    command: ["/worker/ensure-executors.sh"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./:/workspace:ro
+
   worker:
     build: ./worker
     deploy:
@@ -52,13 +59,14 @@ services:
       REDIS_PORT: 6379
       REDIS_SUBMISSION_QUEUE: submissionQueue
     depends_on:
+      executor-init:
+        condition: service_completed_successfully
       mongo:
         condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./:/workspace:ro
 
   # Build executor images only (not running)
   executor-c:

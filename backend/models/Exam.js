@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-export const SUPPORTED_LANGUAGES = ["c", "cpp", "java", "python", "javascript"];
+export const SUPPORTED_LANGUAGES = ["c", "cpp", "java"];
 
 const examSchema = new mongoose.Schema(
   {

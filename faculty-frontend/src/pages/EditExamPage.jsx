@@ -5,7 +5,7 @@ import { useFacultyExams } from "../utils/useFacultyExams";
 import { facultyApi } from "../api";
 import { facultyStorage } from "../storage";
 
-const LANGUAGE_OPTIONS = ["c", "cpp", "java", "python", "javascript"];
+const LANGUAGE_OPTIONS = ["c", "cpp", "java"];
 
 function toLocalDateTimeInput(dateValue) {
   if (!dateValue) return "";
@@ -39,7 +39,9 @@ function EditExamPage({ pushToast }) {
       startTime: toLocalDateTimeInput(exam.startTime),
       endTime: toLocalDateTimeInput(exam.endTime),
       duration: String(exam.duration || ""),
-      allowedLanguages: Array.isArray(exam.allowedLanguages) ? exam.allowedLanguages : [],
+      allowedLanguages: Array.isArray(exam.allowedLanguages)
+        ? exam.allowedLanguages.filter((language) => LANGUAGE_OPTIONS.includes(language))
+        : [],
     });
     setInitializedId(exam._id);
   }, [exam, initializedId]);

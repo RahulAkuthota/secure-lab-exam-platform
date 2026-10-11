@@ -1,4 +1,4 @@
-import { Exam } from "../models/Exam.js";
+import { Exam, SUPPORTED_LANGUAGES } from "../models/Exam.js";
 import { QuestionPaper } from "../models/QuestionPaper.js";
 import { Submission } from "../models/Submission.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -10,6 +10,17 @@ const PUBLIC_RESULT_WAIT_MS = Number(process.env.PUBLIC_RESULT_WAIT_MS || 12000)
 const PUBLIC_RESULT_POLL_MS = Number(process.env.PUBLIC_RESULT_POLL_MS || 300);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const getRunnableLanguages = (languages) => {
+  const runnableLanguages = Array.isArray(languages)
+    ? languages
+        .map((language) => String(language).trim().toLowerCase())
+        .filter((language) => SUPPORTED_LANGUAGES.includes(language))
+    : [];
+
+  // An empty list means any runtime is allowed. Return the runtimes the worker
+  // can actually execute, including for exams with legacy language settings.
+  return runnableLanguages.length > 0 ? runnableLanguages : SUPPORTED_LANGUAGES;
+};
 
 const formatEvaluationForStudent = (resultDoc) => {
   const evaluation = resultDoc?.evaluation || null;
@@ -59,7 +70,12 @@ export const getActiveExams = asyncHandler(async (req, res) => {
     .select("_id title startTime endTime duration allowedLanguages")
     .sort({ startTime: 1 });
 
-  res.status(200).json({ exams });
+  res.status(200).json({
+    exams: exams.map((exam) => ({
+      ...exam.toObject(),
+      allowedLanguages: getRunnableLanguages(exam.allowedLanguages),
+    })),
+  });
 });
 
 export const startExam = asyncHandler(async (req, res) => {
@@ -125,7 +141,7 @@ export const startExam = asyncHandler(async (req, res) => {
       duration: exam.duration,
       startTime: exam.startTime,
       endTime: exam.endTime,
-      allowedLanguages: exam.allowedLanguages || [],
+      allowedLanguages: getRunnableLanguages(exam.allowedLanguages),
     },
     submissionId: submission._id,
     questions: safeQuestions,
@@ -220,6 +236,13 @@ export const submitCode = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "language is required." });
   }
 
+  const normalizedLanguage = language.trim().toLowerCase();
+  if (!SUPPORTED_LANGUAGES.includes(normalizedLanguage)) {
+    return res.status(400).json({
+      message: `Unsupported language '${normalizedLanguage}'. Supported languages: ${SUPPORTED_LANGUAGES.join(", ")}.`,
+    });
+  }
+
   if (!code || typeof code !== "string" || !code.trim()) {
     return res.status(400).json({ message: "code is required." });
   }
@@ -254,12 +277,10 @@ export const submitCode = asyncHandler(async (req, res) => {
     });
   }
 
-  const examLanguages = Array.isArray(exam.allowedLanguages)
-    ? exam.allowedLanguages
-    : [];
-  if (examLanguages.length > 0 && !examLanguages.includes(language)) {
+  const examLanguages = getRunnableLanguages(exam.allowedLanguages);
+  if (examLanguages.length > 0 && !examLanguages.includes(normalizedLanguage)) {
     return res.status(400).json({
-      message: `Language '${language}' is not allowed for this exam.`,
+      message: `Language '${normalizedLanguage}' is not allowed for this exam.`,
     });
   }
 
@@ -293,7 +314,7 @@ export const submitCode = asyncHandler(async (req, res) => {
     rollNumber: req.user.rollNumber,
     examId: effectiveExamId.toString(),
     questionIndex,
-    language: language.trim().toLowerCase(),
+    language: normalizedLanguage,
     code,
     submissionType,
     testCases: selectedTestCases.map((testCase) => ({

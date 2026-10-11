@@ -20,4 +20,3 @@ for image in executor-c executor-cpp executor-java; do
 done
 
 echo "[worker-init] executor images are ready"
-exec node worker.js

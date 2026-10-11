@@ -12,4 +12,4 @@ COPY worker.js ./
 COPY ensure-executors.sh ./
 RUN chmod +x /worker/ensure-executors.sh
 
-CMD ["/worker/ensure-executors.sh"]
+CMD ["node", "worker.js"]

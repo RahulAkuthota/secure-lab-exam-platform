@@ -191,7 +191,11 @@ async function runCode(job, input = "") {
   const image = EXECUTOR_IMAGES[language];
 
   if (!image) {
-    throw new Error("Unsupported language");
+    return {
+      stdout: "",
+      stderr: "",
+      error: `Unsupported language '${language}'. Supported languages: ${Object.keys(EXECUTOR_IMAGES).join(", ")}.`,
+    };
   }
 
   const execId = crypto.randomUUID();
@@ -380,9 +384,10 @@ async function start() {
     const results = db.collection("results");
 
     while (true) {
+      let payload;
       try {
         const job = await redis.brPop(REDIS_SUBMISSION_QUEUE, 0);
-        const payload = JSON.parse(job.element);
+        payload = JSON.parse(job.element);
 
         log("=====================================");
         log("NEW JOB RECEIVED");
@@ -397,7 +402,36 @@ async function start() {
         log(payload.code);
         log("=====================================");
 
-        const executionResult = await evaluateSubmission(payload);
+        let executionResult;
+        try {
+          executionResult = await evaluateSubmission(payload);
+        } catch (err) {
+          const errorMessage = `Worker failed to process submission: ${err.message}`;
+          log(errorMessage);
+          executionResult = {
+            stdout: "",
+            stderr: "",
+            error: errorMessage,
+            executionTime: 0,
+            evaluation: {
+              totalCases: Array.isArray(payload.testCases) ? payload.testCases.length : 0,
+              passedCases: 0,
+              allPassed: false,
+              failedCaseNumber: Array.isArray(payload.testCases) && payload.testCases.length > 0 ? 1 : null,
+              cases: Array.isArray(payload.testCases) && payload.testCases.length > 0
+                ? [{
+                  caseNumber: 1,
+                  passed: false,
+                  status: "Failed",
+                  executionTime: 0,
+                  error: errorMessage,
+                  stderr: "",
+                  stdout: "",
+                }]
+                : [],
+            },
+          };
+        }
         const executionTime = executionResult.executionTime;
 
         log("Execution Output:");
@@ -408,7 +442,7 @@ async function start() {
         log(`Execution Time: ${executionTime} ms`);
         log("=====================================");
 
-        await results.insertOne({
+        await results.updateOne({ jobId: payload.jobId }, { $set: {
           jobId: payload.jobId,
           studentId: payload.studentId,
           rollNumber: payload.rollNumber,
@@ -423,7 +457,7 @@ async function start() {
           evaluation: executionResult.evaluation,
           executionTime,
           timestamp: new Date(),
-        });
+        } }, { upsert: true });
 
         log("Job stored in MongoDB");
       } catch (err) {

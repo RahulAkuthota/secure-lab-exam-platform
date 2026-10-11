@@ -4,7 +4,7 @@ import DashboardLayout from "../layout/DashboardLayout";
 import { facultyApi } from "../api";
 import { facultyStorage } from "../storage";
 
-const LANGUAGE_OPTIONS = ["c", "cpp", "java", "python", "javascript"];
+const LANGUAGE_OPTIONS = ["c", "cpp", "java"];
 
 function CreateExamPage({ pushToast }) {
   const navigate = useNavigate();
