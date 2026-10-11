@@ -282,6 +282,18 @@ const normalizeAllowedLanguages = (allowedLanguages) => {
   return normalizedLanguages;
 };
 
+const parseTimezoneAwareDate = (value) => {
+  if (typeof value !== "string" || !/(?:Z|[+-]\d{2}:\d{2})$/i.test(value.trim())) {
+    return null;
+  }
+
+  const parsedDate = new Date(value);
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+};
+
+const invalidExamDateMessage =
+  "startTime and endTime must be valid timestamps with a timezone (ISO format ending in Z or an explicit UTC offset).";
+
 export const createExam = asyncHandler(async (req, res) => {
   const { title, startTime, endTime, duration, allowedLanguages } = req.body;
 
@@ -291,11 +303,11 @@ export const createExam = asyncHandler(async (req, res) => {
     });
   }
 
-  const parsedStart = new Date(startTime);
-  const parsedEnd = new Date(endTime);
+  const parsedStart = parseTimezoneAwareDate(startTime);
+  const parsedEnd = parseTimezoneAwareDate(endTime);
 
-  if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) {
-    return res.status(400).json({ message: "Invalid startTime or endTime." });
+  if (!parsedStart || !parsedEnd) {
+    return res.status(400).json({ message: invalidExamDateMessage });
   }
 
   if (parsedEnd <= parsedStart) {
@@ -339,11 +351,11 @@ export const updateExamDetails = asyncHandler(async (req, res) => {
     return res.status(404).json({ message: "Exam not found for this faculty." });
   }
 
-  const parsedStart = new Date(startTime);
-  const parsedEnd = new Date(endTime);
+  const parsedStart = parseTimezoneAwareDate(startTime);
+  const parsedEnd = parseTimezoneAwareDate(endTime);
 
-  if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) {
-    return res.status(400).json({ message: "Invalid startTime or endTime." });
+  if (!parsedStart || !parsedEnd) {
+    return res.status(400).json({ message: invalidExamDateMessage });
   }
 
   if (parsedEnd <= parsedStart) {

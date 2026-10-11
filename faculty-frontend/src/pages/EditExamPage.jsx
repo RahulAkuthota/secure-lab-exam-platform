@@ -4,16 +4,9 @@ import DashboardLayout from "../layout/DashboardLayout";
 import { useFacultyExams } from "../utils/useFacultyExams";
 import { facultyApi } from "../api";
 import { facultyStorage } from "../storage";
+import { toApiDateTime, toLocalDateTimeInput } from "../utils/dateTime";
 
 const LANGUAGE_OPTIONS = ["c", "cpp", "java"];
-
-function toLocalDateTimeInput(dateValue) {
-  if (!dateValue) return "";
-  const date = new Date(dateValue);
-  const offset = date.getTimezoneOffset();
-  const localDate = new Date(date.getTime() - offset * 60 * 1000);
-  return localDate.toISOString().slice(0, 16);
-}
 
 function EditExamPage({ pushToast }) {
   const navigate = useNavigate();
@@ -65,8 +58,8 @@ function EditExamPage({ pushToast }) {
     try {
       await facultyApi.updateExam(token, exam._id, {
         title: form.title.trim(),
-        startTime: form.startTime,
-        endTime: form.endTime,
+        startTime: toApiDateTime(form.startTime),
+        endTime: toApiDateTime(form.endTime),
         duration: Number(form.duration) || undefined,
         allowedLanguages: form.allowedLanguages,
       });
@@ -89,6 +82,7 @@ function EditExamPage({ pushToast }) {
         {!loading && !exam ? <div className="empty">Exam not found.</div> : null}
         {!loading && exam ? (
           <form className="form-grid" onSubmit={updateExam}>
+            <p className="meta">Exam times are entered in this device's local timezone.</p>
             <label>
               Exam Title
               <input

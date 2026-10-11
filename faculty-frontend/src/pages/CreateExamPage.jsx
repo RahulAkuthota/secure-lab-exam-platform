@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import DashboardLayout from "../layout/DashboardLayout";
 import { facultyApi } from "../api";
 import { facultyStorage } from "../storage";
+import { toApiDateTime } from "../utils/dateTime";
 
 const LANGUAGE_OPTIONS = ["c", "cpp", "java"];
 
@@ -36,8 +37,8 @@ function CreateExamPage({ pushToast }) {
     try {
       const data = await facultyApi.createExam(token, {
         title: form.title.trim(),
-        startTime: form.startTime,
-        endTime: form.endTime,
+        startTime: toApiDateTime(form.startTime),
+        endTime: toApiDateTime(form.endTime),
         duration: Number(form.duration) || undefined,
         allowedLanguages: form.allowedLanguages,
       });
@@ -57,6 +58,7 @@ function CreateExamPage({ pushToast }) {
     >
       <section className="card">
         <h2>Exam Details</h2>
+        <p className="meta">Exam times are entered in this device's local timezone.</p>
         <form className="form-grid" onSubmit={createExam}>
           <label>
             Title
